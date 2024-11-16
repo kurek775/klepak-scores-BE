@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
@@ -121,3 +122,6 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+MIDDLEWARE.insert(0, 'corsheaders.middleware.CorsMiddleware')
+
+CORS_ALLOW_ALL_ORIGINS = True  # V produkci omezte pouze na povolené domény
