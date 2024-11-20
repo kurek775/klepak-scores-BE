@@ -1,6 +1,8 @@
 # klepak-scores-BE
-## python -m venv my_env
-## admin cmd -> my_env\Scripts\activate
-## pip install -r requirements.txt
-## cd project
-##  python manage.py runserver
+## INIT project
+## 1 python -m venv venv
+## 2 env\Scripts\activate
+## 3 pip install fastapi[all]
+## 4 uvicorn main:app
+
+## tutorial : https://www.youtube.com/watch?v=0sOvCWFmrtA&ab_channel=freeCodeCamp.org
