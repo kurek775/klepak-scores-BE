@@ -5,6 +5,10 @@
 		},
 		{
 			"path": "../klepak-scores-FE"
+		},
+		{
+			"name": "klepak-scores-analysis",
+			"path": "../klepak-scores-analysis"
 		}
 	],
 	"settings": {}

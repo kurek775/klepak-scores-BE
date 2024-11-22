@@ -6,3 +6,10 @@
 ## 4 uvicorn main:app --reload
 
 ## tutorial : https://www.youtube.com/watch?v=0sOvCWFmrtA&ab_channel=freeCodeCamp.org
+
+## LOCAL DB
+## 1 download docker
+## 2 open powershell and run : docker pull postgres
+## 3 run : docker run --name my_pg_db -e POSTGRES_USER=myuser -e POSTGRES_PASSWORD=mypassword -e POSTGRES_DB=mydb -p 5432:5432 -d postgres
+## 4 run : docker ps
+## 5 
