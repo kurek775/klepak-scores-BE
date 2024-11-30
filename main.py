@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy import text
@@ -63,8 +63,16 @@ async def get_persons(db: AsyncSession = Depends(get_db)):
 
 
 @api_router.post("/tours/{tourId}/crews/{crewId}/upload-photo")
-def upload_file(tourId: int, crewId: int):
-    return {"message": f"Photo uploaded for tour {tourId} and crew {crewId}"}
+async def upload_file(tourId: int, crewId: int, file: UploadFile = File(...)):
+    """
+    Endpoint to upload a photo for a specific tour and crew.
+    """
+    try:
+        # Log the file name
+        print(f"Received file: {file.filename}")
+        return {"message": f"File '{file.filename}' uploaded successfully for tour {tourId} and crew {crewId}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.post("/tours/{tourId}/crews/{crewId}/sports/{sportId}/results")
