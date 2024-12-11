@@ -3,15 +3,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy import text
 from db import engine, get_db
+from dotenv import load_dotenv
+import os
+import utils.openai as fileHelper
+import openai
+load_dotenv()
 
-app = FastAPI(openapi_url="/api/openapi.json", docs_url="/api/docs", redoc_url="/api/redoc")
-
+app = FastAPI(
+    openapi_url="/api/openapi.json", docs_url="/api/docs", redoc_url="/api/redoc"
+)
 api_router = APIRouter(prefix="/api")
 
 
 async def check_if_db_initialized() -> bool:
     """Check if the required tables exist in the database."""
     async with engine.connect() as conn:
+
         def check_tables(connection):
             inspector = Inspector.from_engine(connection)
             return inspector.get_table_names()
@@ -67,12 +74,29 @@ async def upload_file(tourId: int, crewId: int, file: UploadFile = File(...)):
     """
     Endpoint to upload a photo for a specific tour and crew.
     """
-    try:
-        # Log the file name
-        print(f"Received file: {file.filename}")
-        return {"message": f"File '{file.filename}' uploaded successfully for tour {tourId} and crew {crewId}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    image = await fileHelper.encode_image(file)
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Read data in this image, there will be names on the left side and scores on right and on top there will be sport i need you to return it to me in JSON format {sport:,results:[{name:,score:}]} please just reurn JSON format no extra text",
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image}"},
+                    },
+                ],
+            },
+        ],
+    )
+    res = completion.choices[0].message.content
+
+    return {"message": fileHelper.format_openai_resp(res)}
 
 
 @api_router.post("/tours/{tourId}/crews/{crewId}/sports/{sportId}/results")

@@ -6,6 +6,7 @@
 ## 4 uvicorn main:app --reload
 
 ## tutorial : https://www.youtube.com/watch?v=0sOvCWFmrtA&ab_channel=freeCodeCamp.org
+## tutorial : https://github.com/ViktorViskov/fastapi-mvc/blob/main/app/controllers/auth_controller.py
 
 ## LOCAL DB
 ## 1 download docker
