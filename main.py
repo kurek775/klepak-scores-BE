@@ -84,7 +84,7 @@ async def upload_file(tourId: int, crewId: int, file: UploadFile = File(...)):
                 "content": [
                     {
                         "type": "text",
-                        "text": "Read data in this image, there will be names on the left side and scores on right and on top there will be sport i need you to return it to me in JSON format {sport:,results:[{name:,score:}]} please just reurn JSON format no extra text",
+                        "text": "Read data in this image, there will be names on the left side and scores on right and on top there will be sport i need you to return it to me in JSON format {sport:,results:[{name:,score:}]} please just return JSON format no extra text, if the image doesnt look like i described return to me string 'false'",
                     },
                     {
                         "type": "image_url",
@@ -95,6 +95,8 @@ async def upload_file(tourId: int, crewId: int, file: UploadFile = File(...)):
         ],
     )
     res = completion.choices[0].message.content
+    if res == 'false':
+        return {"message": 'Obrázek je ve špatném formátu.'}
 
     return {"message": fileHelper.format_openai_resp(res)}
 
