@@ -13,5 +13,4 @@ def format_openai_resp(data):
             raise ValueError("No JSON block found in the message.")
     json_content = match.group(1)
     fData = json.loads(json_content)
-    print(fData)
-    return data
+    return fData

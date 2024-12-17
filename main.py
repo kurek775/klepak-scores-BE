@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy import text
@@ -11,6 +12,13 @@ load_dotenv()
 
 app = FastAPI(
     openapi_url="/api/openapi.json", docs_url="/api/docs", redoc_url="/api/redoc"
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"], 
 )
 api_router = APIRouter(prefix="/api")
 
