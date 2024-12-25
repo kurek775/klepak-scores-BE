@@ -1,0 +1,4 @@
+asyncpg
+sqlalchemy
+openai
+fastapi[all]

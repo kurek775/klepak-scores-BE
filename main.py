@@ -15,7 +15,7 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"], 
@@ -92,7 +92,7 @@ async def upload_file(tourId: int, crewId: int, file: UploadFile = File(...)):
                 "content": [
                     {
                         "type": "text",
-                        "text": "Read data in this image, there will be names on the left side and scores on right and on top there will be sport i need you to return it to me in JSON format {sport:,results:[{name:,score:}]} please just return JSON format no extra text, if the image doesnt look like i described return to me string 'false'",
+                        "text": "Read data in this image, there will be names on the left side and scores on right and on top there will be sport i need you to return it to me in JSON format {label:,list:[{name:,score:}],count: list.length} sport as label, results as list please just return JSON format no extra text, if the image doesnt look like i described return to me string 'false'",
                     },
                     {
                         "type": "image_url",
@@ -106,7 +106,7 @@ async def upload_file(tourId: int, crewId: int, file: UploadFile = File(...)):
     if res == 'false':
         return {"message": 'Obrázek je ve špatném formátu.'}
 
-    return {"message": fileHelper.format_openai_resp(res)}
+    return fileHelper.format_openai_resp(res)
 
 
 @api_router.post("/tours/{tourId}/crews/{crewId}/sports/{sportId}/results")
