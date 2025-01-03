@@ -8,6 +8,10 @@ from dotenv import load_dotenv
 import os
 import utils.openai as fileHelper
 import openai
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+# Create a session maker
+async_session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
 load_dotenv()
 
 app = FastAPI(
@@ -58,8 +62,8 @@ async def initialize_database():
         db_initialized = await check_if_db_initialized()
         if not db_initialized:
             print("Database is not initialized. Running initialization scripts...")
-            await execute_sql_script("KLEPAK.sql")
-            await execute_sql_script("mock.sql")
+            await execute_sql_script("create_db.sql")
+            await execute_sql_script("insert_mock_data.sql")
             print("Database initialized successfully!")
         else:
             print("Database is already initialized.")
@@ -72,7 +76,8 @@ async def get_persons(db: AsyncSession = Depends(get_db)):
     try:
         result = await db.execute(text("SELECT * FROM persons"))
         rows = result.fetchall()
-        return {"data": [dict(row._mapping) for row in rows]}
+        resp = [dict(row._mapping) for row in rows]
+        return {"list": resp,"count":len(resp)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -82,31 +87,43 @@ async def upload_file(tourId: int, crewId: int, file: UploadFile = File(...)):
     """
     Endpoint to upload a photo for a specific tour and crew.
     """
-    image = await fileHelper.encode_image(file)
-    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Read data in this image, there will be names on the left side and scores on right and on top there will be sport i need you to return it to me in JSON format {label:,list:[{name:,score:}],count: list.length} sport as label, results as list please just return JSON format no extra text, if the image doesnt look like i described return to me string 'false'",
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{image}"},
-                    },
-                ],
-            },
-        ],
-    )
-    res = completion.choices[0].message.content
-    if res == 'false':
-        return {"message": 'Obrázek je ve špatném formátu.'}
+    try:
+        # Encode the uploaded image
+        image = await fileHelper.encode_image(file)
+        
+        # Use OpenAI's API to process the image
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Read data in this image, there will be names on the left side and scores on right and on top there will be sport i need you to return it to me in JSON format {label:,list:[{name:,score:}],count: list.length} sport as label, results as list please just return JSON format no extra text, if the image doesnt look like i described return to me string 'false'",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image}"},
+                        },
+                    ],
+                },
+            ],
+        )
+        res = completion.choices[0].message.content
 
-    return fileHelper.format_openai_resp(res)
+        if res == 'false':
+            return {"message": 'Obrázek je ve špatném formátu.'}
+
+        # Get persons from the database
+        async with async_session_maker() as db:
+            result = await get_persons(db)
+
+        return  fileHelper.format_openai_resp(res,result)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_router.post("/tours/{tourId}/crews/{crewId}/sports/{sportId}/results")
