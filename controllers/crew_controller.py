@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from utils.openai import encode_image, format_openai_resp
+from sqlalchemy import text
 from db import async_session_maker
 import os
 import openai
@@ -19,11 +20,16 @@ async def upload_file(crewId: int, file: UploadFile = File(...)):
             messages=[
                 {
                     "role": "user",
-                    "content": "Read data in this image, ... JSON format only",
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{image}"},
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Read data in this image, there will be names on the left side and scores on right and on top there will be sport i need you to return it to me in JSON format {label:,list:[{name:,score:}],count: list.length} sport as label, results as list please just return JSON format no extra text, if the image doesnt look like i described return to me string 'false'",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image}"},
+                        },
+                    ],
                 },
             ],
         )
@@ -34,7 +40,7 @@ async def upload_file(crewId: int, file: UploadFile = File(...)):
 
         # Fetch persons from the database
         async with async_session_maker() as db:
-            result = await db.execute("SELECT * FROM persons")
+            result = await db.execute(text("SELECT * FROM persons"))
             rows = result.fetchall()
             persons = {"list": [dict(row._mapping) for row in rows], "count": len(rows)}
 
