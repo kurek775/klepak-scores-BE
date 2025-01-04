@@ -17,8 +17,7 @@ def format_openai_resp(data, persons):
     db_persons = persons['list']
     for item in fData['list']:
         name_from_paper = item['name']
-        matches = get_close_matches(name_from_paper, [p['name'] for p in db_persons], n=1, cutoff=0.8)
-
+        matches = get_close_matches(name_from_paper, [p['name'] for p in db_persons], n=1, cutoff=0.5)
         if matches:
             matched_name = matches[0]
             person_data = next(p for p in db_persons if p['name'] == matched_name)
