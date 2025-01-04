@@ -34,5 +34,5 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(person_router, prefix="/api/persons")
-app.include_router(crew_router, prefix="/api/crews")
+app.include_router(person_router, prefix="/api/tours/{tour_id}/persons")
+app.include_router(crew_router, prefix="/api/tours/{tour_id}/crews")

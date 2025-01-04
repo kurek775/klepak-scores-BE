@@ -8,7 +8,6 @@ async def encode_image(file: UploadFile):
     return base64.b64encode(file_content).decode("utf-8")
 
 def format_openai_resp(data, persons):
-    # Extract JSON content from OpenAI response
     match = re.search(r"```json\n(.*?)\n```", data, re.DOTALL)
     if not match:
         raise ValueError("No JSON block found in the message.")

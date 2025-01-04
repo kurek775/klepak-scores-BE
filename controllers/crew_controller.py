@@ -8,7 +8,7 @@ import openai
 api_router = APIRouter()
 
 @api_router.post("/{crewId}/upload-photo")
-async def upload_file(crewId: int, file: UploadFile = File(...)):
+async def upload_file(tour_id: int,crewId: int, file: UploadFile = File(...)):
     try:
         # Process the uploaded image
         image = await encode_image(file)

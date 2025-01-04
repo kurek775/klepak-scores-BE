@@ -6,7 +6,7 @@ from db import async_session_maker
 api_router = APIRouter()
 
 @api_router.get("/")
-async def get_persons():
+async def get_persons(tour_id: int):
     async with async_session_maker() as db:
         try:
             result = await db.execute(text("SELECT * FROM persons"))
