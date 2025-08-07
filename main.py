@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Perform startup tasks
@@ -18,10 +19,13 @@ async def lifespan(app: FastAPI):
     # Perform cleanup tasks if needed
     print("Application shutdown...")
 
+
 # Initialize FastAPI app with lifespan context
 app = FastAPI(
     lifespan=lifespan,
-    openapi_url="/api/openapi.json", docs_url="/api/docs", redoc_url="/api/redoc"
+    openapi_url="/api/openapi.json",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
 )
 
 # Add CORS middleware

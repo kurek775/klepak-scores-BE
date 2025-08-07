@@ -1,29 +1,78 @@
--- Insert mock data
-INSERT INTO crews (leaders, number, password) VALUES
-    ('{"Alice", "Bob"}', 1, 'pass123'),
-    ('{"Carol", "Dave"}', 2, 'secure456');
+-- USERS (admin and leaders)
+INSERT INTO
+    users (
+        email,
+        name,
+        picture_url,
+        is_admin
+    )
+VALUES (
+        'admin@example.com',
+        'Alice Admin',
+        'https://example.com/alice.jpg',
+        TRUE
+    ),
+    (
+        'leader1@example.com',
+        'Bob Leader',
+        'https://example.com/bob.jpg',
+        FALSE
+    ),
+    (
+        'leader2@example.com',
+        'Clara Leader',
+        'https://example.com/clara.jpg',
+        FALSE
+    );
 
-INSERT INTO persons (name, crew_id, category) VALUES
-    ('John Doe', 1, 'A'),
-    ('Jane Smith', 1, 'B'),
-    ('Mark Taylor', 2, 'A'),
-    ('Lucy Brown', 2, 'C');
+-- CREWS
+INSERT INTO crews (number) VALUES (101), (102);
 
-INSERT INTO sports (name, metric) VALUES
-    ('Basketball', 'Points'),
-    ('Soccer', 'Goals'),
-    ('Swimming', 'Seconds');
+-- CREW_LEADERS (assign leaders to crews)
+INSERT INTO
+    crew_leaders (crew_id, user_id)
+VALUES (1, 2), -- Bob is leader of crew 101
+    (2, 3);
+-- Clara is leader of crew 102
 
-INSERT INTO results (sport_id, person_id, score) VALUES
-    (1, 1, 15.5),
-    (2, 2, 3.0),
-    (3, 3, 120.7),
-    (1, 4, 20.1);
+-- PERSONS (non-login users assigned to crews)
+INSERT INTO
+    persons (name, crew_id)
+VALUES ('Tom Basic', 1),
+    ('Jerry Basic', 1),
+    ('Anna Basic', 2),
+    ('Mike Basic', 2);
 
-INSERT INTO templates (bgImage, font, textPosition) VALUES
-    (NULL, NULL, 'center'),
-    (NULL, NULL, 'left');
+-- SPORTS
+INSERT INTO
+    sports (name, metric)
+VALUES ('Running', 'time'),
+    ('Swimming', 'distance');
 
-INSERT INTO tours (year, part, theme) VALUES
-    (2024, 'Summer', 'Adventure'),
-    (2024, 'Winter', 'Mystery');
+-- RESULTS (some sport scores for persons)
+INSERT INTO
+    results (sport_id, person_id, score)
+VALUES (1, 1, 12.5), -- Tom Basic ran in 12.5 seconds
+    (2, 2, 100.0), -- Jerry swam 100m
+    (1, 3, 13.2), -- Anna ran
+    (2, 4, 90.0);
+-- Mike swam
+
+-- TEMPLATES
+INSERT INTO
+    templates (bgImage, font, textPosition)
+VALUES (
+        E'\\xDEADBEEF',
+        E'\\xF00DBABE',
+        'top-left'
+    );
+
+-- TOURS
+INSERT INTO
+    tours (id, year, part, theme)
+VALUES (
+        1,
+        2025,
+        'Spring',
+        'Adventure Time'
+    );
