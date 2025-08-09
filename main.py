@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from controllers.person_controller import api_router as person_router
 from controllers.crew_controller import api_router as crew_router
+from controllers.sport_controller import api_router as sport_router
 from db import initialize_database
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -40,3 +41,4 @@ app.add_middleware(
 # Include routers
 app.include_router(person_router, prefix="/api/tours/{tour_id}/persons")
 app.include_router(crew_router, prefix="/api/tours/{tour_id}/crews")
+app.include_router(sport_router, prefix="/api/tours/{tour_id}/sports")

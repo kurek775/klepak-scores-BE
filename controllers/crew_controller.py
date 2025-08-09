@@ -31,7 +31,6 @@ async def save_results_from_frontend(
     async with async_session_maker() as db:
         try:
             for item in results:
-                # Validate person-crew match
                 check = await db.execute(
                     text("SELECT 1 FROM persons WHERE id = :pid AND crew_id = :cid"),
                     {"pid": item.person_id, "cid": crew_id},
@@ -73,43 +72,64 @@ async def save_results_from_frontend(
 
 
 @api_router.get(
-    "/{crew_id}/sport/{sport_id}", summary="Get persons with results by crew"
+    "/{crew_id}/sport/{sport_id}",
+    summary="Get persons with result for a given crew, sport and tour",
 )
-async def get_crew_results(tour_id: int, crew_id: int, sport_id: int):
+async def get_crew_results(crew_id: int, sport_id: int, tour_id: int):
     async with async_session_maker() as db:
         try:
-            query = """
-                SELECT 
-                    p.id AS person_id,
+            # 1) Ověř, že sport patří do tour (tour_sports)
+            check = await db.scalar(
+                text(
+                    """
+                    SELECT 1
+                    FROM tour_sports
+                    WHERE tour_id = :tour_id AND sport_id = :sport_id
+                    LIMIT 1
+                """
+                ),
+                {"tour_id": tour_id, "sport_id": sport_id},
+            )
+            if not check:
+                raise HTTPException(
+                    status_code=404, detail="Sport is not part of the specified tour."
+                )
+
+            # 2) Vrať všechny osoby z crew, s případným výsledkem pro daný sport v dané tour
+            #    (LEFT JOIN zachová i osoby bez výsledku)
+            query = text(
+                """
+                SELECT
+                    p.id   AS person_id,
                     p.name AS person_name,
-                    p.category,
-                    r.id AS result_id,
+                    r.id   AS result_id,
                     r.score,
-                    s.id AS sport_id,
+                    r.tour_id,
+                    s.id   AS sport_id,
                     s.name AS sport_name,
                     s.metric
                 FROM persons p
-                LEFT JOIN results r ON p.id = r.person_id
-                LEFT JOIN sports s ON r.sport_id = s.id
+                LEFT JOIN results r
+                  ON r.person_id = p.id
+                 AND r.tour_id   = :tour_id
+                 AND r.sport_id  = :sport_id
+                -- sport info vrátíme i když výsledek neexistuje
+                LEFT JOIN sports s
+                  ON s.id = :sport_id
                 WHERE p.crew_id = :crew_id
+                ORDER BY p.name
             """
-
-            if sport_id is not None:
-                query += " AND s.id = :sport_id"
-
-            result = await db.execute(
-                text(query),
-                (
-                    {"crew_id": crew_id, "sport_id": sport_id}
-                    if sport_id is not None
-                    else {"crew_id": crew_id}
-                ),
             )
 
-            rows = result.fetchall()
-            resp = [dict(row._mapping) for row in rows]
-            return {"list": resp, "count": len(resp)}
+            result = await db.execute(
+                query,
+                {"crew_id": crew_id, "tour_id": tour_id, "sport_id": sport_id},
+            )
+            rows = [dict(row._mapping) for row in result.fetchall()]
+            return {"list": rows, "count": len(rows)}
 
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
