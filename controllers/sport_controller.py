@@ -21,6 +21,7 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 class SportDTO(BaseModel):
     sport_id: int
     sport_name: str
+    sport_metric: str
 
 
 class SportListResponse(BaseModel):
@@ -35,6 +36,7 @@ async def get_sports(tour_id: int, db: AsyncSession = Depends(get_session)):
             select(
                 Sport.id.label("sport_id"),
                 Sport.name.label("sport_name"),
+                Sport.metric.label("sport_metric"),
             )
             .join(TourSport, TourSport.sport_id == Sport.id)
             .where(TourSport.tour_id == tour_id)
