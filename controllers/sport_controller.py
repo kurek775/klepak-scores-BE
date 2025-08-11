@@ -19,7 +19,7 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 # --- DTOs ---
 class SportDTO(BaseModel):
-    sport_id: int
+    sport_id: int | None
     sport_name: str
     sport_metric: str
 
@@ -48,6 +48,35 @@ async def get_sports(tour_id: int, db: AsyncSession = Depends(get_session)):
         rows = (await db.execute(stmt)).mappings().all()
         items = [SportDTO(**row) for row in rows]
         return SportListResponse(list=items, count=len(items))
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.put(
+    "/", summary="Update sports for a tour", response_model=SportListResponse
+)
+async def create_sports(tour_id: int, db: AsyncSession = Depends(get_session)):
+    try:
+        print(tour_id)
+    # 1 insert to table sports
+    # 2 insert to tour sports
+    # stmt = (
+    #     select(
+    #         Sport.id.label("sport_id"),
+    #         Sport.name.label("sport_name"),
+    #         Sport.metric.label("sport_metric"),
+    #     )
+    #     .join(TourSport, TourSport.sport_id == Sport.id)
+    #     .where(TourSport.tour_id == tour_id)
+    #     .order_by(Sport.name)
+    #     .distinct()
+    # )
+
+    # # Use mappings() to get dict-like rows
+    # rows = (await db.execute(stmt)).mappings().all()
+    # items = [SportDTO(**row) for row in rows]
+    # return SportListResponse(list=items, count=len(items))
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
