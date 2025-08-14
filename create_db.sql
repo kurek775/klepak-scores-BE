@@ -91,3 +91,7 @@ CREATE INDEX idx_tour_sports_tour ON tour_sports (tour_id);
 CREATE INDEX idx_tour_sports_sport ON tour_sports (sport_id);
 
 ALTER TABLE sports ADD CONSTRAINT uq_sports_name UNIQUE (name);
+
+ALTER TABLE templates RENAME COLUMN bgimage TO "bgImage";
+
+ALTER TABLE templates RENAME COLUMN textposition TO "textPosition";
