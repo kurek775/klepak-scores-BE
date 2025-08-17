@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from core.config import settings
 
 from starlette.middleware.sessions import SessionMiddleware
+
 # Load environment variables
 load_dotenv()
 
@@ -19,7 +20,7 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     print("Initializing database...")
     await initialize_database()
-    yield 
+    yield
     print("Application shutdown...")
 
 
@@ -39,10 +40,12 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
-app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET, same_site="lax")
+app.add_middleware(
+    SessionMiddleware, secret_key=settings.SESSION_SECRET, same_site="lax"
+)
 # Include routers
 app.include_router(crew_router, prefix="/api/tours/{tour_id}/crews")
 app.include_router(sport_router, prefix="/api/tours/{tour_id}/sports")
 app.include_router(tours_router, prefix="/api/tours")
-app.include_router(auth_router,prefix="/auth/google")
-app.include_router(me_router,prefix="/api/me")
+app.include_router(auth_router, prefix="/auth/google")
+app.include_router(me_router, prefix="/api/me")
