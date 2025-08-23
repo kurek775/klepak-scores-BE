@@ -5,8 +5,9 @@ from utils.auth import (
     handle_google_callback,
     logout_response,
 )
+from db import get_db
 
-
+from sqlalchemy.ext.asyncio import AsyncSession
 api_router = APIRouter()
 
 
@@ -16,9 +17,8 @@ async def google_login(request: Request):
 
 
 @api_router.get("/callback")
-async def google_callback(request: Request):
-    print(request)
-    return await handle_google_callback(request)
+async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
+    return await handle_google_callback(request,db)
 
 
 @api_router.post("/logout")

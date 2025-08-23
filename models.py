@@ -35,7 +35,7 @@ crew_leaders = Table(
 
 class User(Base):
     __tablename__ = "users"
-
+    sub: Mapped[int]= mapped_column(Text)
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     name: Mapped[Optional[str]] = mapped_column(String)

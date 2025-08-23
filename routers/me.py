@@ -9,4 +9,4 @@ api_router = APIRouter()
 @api_router.get("/")
 def me(request: Request):
     user = get_user_from_cookie(request)
-    return {"email": user.get("email"), "name": user.get("name"), "isAdmin": True}
+    return user

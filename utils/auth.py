@@ -11,12 +11,17 @@ from jose import jwt as app_jwt  # your app cookie JWT
 import httpx
 from authlib.jose import jwt as jose_jwt  # for verifying Google's ID token
 from authlib.jose import JsonWebKey
-
+from models import User, Crew, Tour, TourSport, Result
+from sqlalchemy import select, and_, func, literal
 import secrets
 import logging
 import traceback
 from urllib.parse import urlencode
 
+from sqlalchemy import select, func
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+
+from sqlalchemy.ext.asyncio import AsyncSession
 log = logging.getLogger("auth")
 if not log.handlers:
     logging.basicConfig(
@@ -73,8 +78,9 @@ async def start_google_login(request: Request):
     )
 
 
-async def handle_google_callback(request: Request):
-    """Exchange code->token, verify ID token (JOSE + Google JWKs), set cookie."""
+
+async def handle_google_callback(request: Request, db: AsyncSession):
+    """Exchange code->token, verify ID token (Google JWKs), get-or-create user in DB, set cookie."""
     # Log sanitized callback
     log.info(
         "OAuth callback: method=%s path=%s query=%s headers=%s session_keys=%s",
@@ -102,23 +108,20 @@ async def handle_google_callback(request: Request):
             "token_exchange_failed", {"status": status or "", "etype": type(e).__name__}
         )
 
-    # 2) Grab raw id_token and verify it with Google JWKs (no parse_id_token edge-cases)
+    # 2) Verify raw id_token against Google JWKs
     idt = token.get("id_token")
     if not idt:
         log.error("Token does not contain id_token (keys=%s)", list(token.keys()))
         return _redirect_err("id_token_missing")
 
     try:
-        # Fetch Google JWK set (cache this in real apps)
         jwks_uri = "https://www.googleapis.com/oauth2/v3/certs"
         async with httpx.AsyncClient(timeout=10.0) as client:
             jwks = (await client.get(jwks_uri)).json()
 
         claims = jose_jwt.decode(idt, JsonWebKey.import_key_set(jwks))
-        # Validate standard temporal claims
-        claims.validate()
+        claims.validate()  # exp/nbf/iat
 
-        # Validate issuer & audience
         iss = claims.get("iss")
         if iss not in {"https://accounts.google.com", "accounts.google.com"}:
             log.error("Invalid iss: %s", iss)
@@ -129,31 +132,96 @@ async def handle_google_callback(request: Request):
             log.error("Invalid aud: %s", aud)
             return _redirect_err("id_token_invalid_aud")
 
-        # Validate nonce if we set it
         nonce = request.session.get("oidc_nonce")
         if nonce and claims.get("nonce") != nonce:
             log.error("Invalid nonce. expected=%s got=%s", nonce, claims.get("nonce"))
             return _redirect_err("id_token_invalid_nonce")
 
-        # Map claims to userinfo-ish structure
+        # Extract from claims
         sub = claims.get("sub")
         email = claims.get("email")
-        name = claims.get("name")
-        picture = claims.get("picture")
+        google_name = claims.get("name")
+        google_picture = claims.get("picture")
 
     except Exception as e:
         log.error("ID token verification FAILED: %s", str(e))
         log.debug("Trace:\n%s", traceback.format_exc())
         return _redirect_err("id_token_invalid", {"etype": type(e).__name__})
 
-    # 3) Final checks + set httpOnly app session cookie
+    # 3) Final checks
     if not sub or not email:
-        log.error(
-            "Invalid claims: missing sub/email. claim_keys=%s", list(claims.keys())
-        )
+        log.error("Invalid claims: missing sub/email. claim_keys=%s", list(claims.keys()))
         raise HTTPException(status_code=400, detail="Invalid Google userinfo")
 
-    app_token = create_app_jwt(sub, email, name, picture)
+    # 4) DB get-or-create (by sub; fallback by email)
+    try:
+        # Try by sub (pokud máš sloupec users.sub)
+        user = None
+        res = await db.execute(select(User).where(User.sub == sub))
+        user = res.scalars().first()
+
+        if not user:
+            # Fallback by email (pro starší záznamy bez sub)
+            res = await db.execute(select(User).where(User.email == email))
+            user = res.scalars().first()
+
+        if user:
+            # update last_login_at + doplnění sub/name/picture, pokud je co
+            user.last_login_at = func.now()
+            if getattr(user, "sub", None) in (None, "",) and sub:
+                user.sub = sub
+            if google_name and user.name != google_name:
+                user.name = google_name
+            if google_picture and getattr(user, "picture_url", None) != google_picture:
+                user.picture_url = google_picture
+            await db.flush()
+            exists = True
+        else:
+            # insert nový záznam
+            user = User(
+                sub=sub,
+                email=email,
+                name=google_name,
+                picture_url=google_picture,
+                is_admin=False,
+                # created_at defaultuje v DB, ale nastavíme last_login_at:
+                last_login_at=func.now(),
+            )
+            db.add(user)
+            await db.flush()  # získáme user.id bez commit
+            exists = False
+
+        await db.commit()
+        log.info(
+            "User %s; id=%s email=%s",
+            "updated" if exists else "created",
+            getattr(user, "id", None),
+            getattr(user, "email", None),
+        )
+    except IntegrityError as e:
+        await db.rollback()
+        log.error("DB integrity error: %s", str(e))
+        # Zkusíme načíst podle emailu (unikátní kolize)
+        res = await db.execute(select(User).where(User.email == email))
+        user = res.scalars().first()
+        if not user:
+            raise HTTPException(status_code=500, detail="DB integrity error")
+        # refresh login timestamp
+        user.last_login_at = func.now()
+        await db.commit()
+    except SQLAlchemyError as e:
+        await db.rollback()
+        log.error("DB upsert FAILED: %s", str(e))
+        log.debug("Trace:\n%s", traceback.format_exc())
+        return _redirect_err("db_upsert_failed", {"etype": type(e).__name__})
+
+    # 5) Build app token (použij jméno/fotku z DB, pokud jsou k dispozici)
+    name_for_token = getattr(user, "name", None) or google_name
+    picture_for_token = getattr(user, "picture_url", None) or google_picture
+    is_admin = getattr(user,"is_admin",None) or False
+
+    app_token = create_app_jwt(sub, is_admin,email, name_for_token, picture_for_token)
+
     resp = RedirectResponse(url=f"{settings.FRONTEND_URL}/auth/callback")
     resp.set_cookie(
         key=COOKIE_NAME,
@@ -165,7 +233,6 @@ async def handle_google_callback(request: Request):
         path="/",
     )
     return resp
-
 
 def logout_response():
     resp = JSONResponse({"ok": True})

@@ -2,12 +2,13 @@ from datetime import datetime, timedelta
 from jose import jwt
 from .config import settings
 
-def create_app_jwt(sub: str, email: str, name: str | None, picture: str | None, hours: int = 12) -> str:
+def create_app_jwt(sub: str,is_admin:bool, email: str, name: str | None, picture: str | None, hours: int = 12) -> str:
     now = datetime.utcnow()
     payload = {
         "sub": sub,
         "email": email,
         "name": name,
+        "is_admin":is_admin,
         "picture": picture,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(hours=hours)).timestamp()),
