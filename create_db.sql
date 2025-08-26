@@ -95,3 +95,27 @@ ALTER TABLE sports ADD CONSTRAINT uq_sports_name UNIQUE (name);
 ALTER TABLE templates RENAME COLUMN bgimage TO "bgImage";
 
 ALTER TABLE templates RENAME COLUMN textposition TO "textPosition";
+
+
+/* 2025-08-23 15:55:11 [44 ms] */ 
+ALTER TABLE crews
+  ADD COLUMN tour_id INTEGER;
+/* 2025-08-23 15:55:13 [16 ms] */ 
+COMMENT ON COLUMN crews.tour_id IS 'FK to tours.id (the tour this crew belongs to)';
+/* 2025-08-23 15:55:15 [41 ms] */ 
+ALTER TABLE crews
+  ADD CONSTRAINT fk_crews_tour
+  FOREIGN KEY (tour_id)
+  REFERENCES tours(id)
+  ON DELETE SET NULL
+  ON UPDATE CASCADE;
+/* 2025-08-23 15:55:17 [24 ms] */ 
+CREATE INDEX idx_crews_tour_id ON crews(tour_id);
+/* 2025-08-23 16:12:47 [23 ms] */ 
+ALTER TABLE users 
+  ADD COLUMN sub INTEGER;
+/* 2025-08-23 16:23:55 [78 ms] */ 
+ALTER TABLE users
+  ALTER COLUMN sub TYPE VARCHAR(255)
+  USING sub::VARCHAR(255);
+/* 2025-08-23 16:33:53 [14 ms] */ 
