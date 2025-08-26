@@ -13,7 +13,6 @@ from core.config import settings
 
 from starlette.middleware.sessions import SessionMiddleware
 
-# Load environment variables
 load_dotenv()
 
 
@@ -25,7 +24,6 @@ async def lifespan(app: FastAPI):
     print("Application shutdown...")
 
 
-# Initialize FastAPI app with lifespan context
 app = FastAPI(
     lifespan=lifespan,
     openapi_url="/api/openapi.json",
@@ -33,7 +31,6 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],
@@ -44,10 +41,9 @@ app.add_middleware(
 app.add_middleware(
     SessionMiddleware, secret_key=settings.SESSION_SECRET, same_site="lax"
 )
-# Include routers
 app.include_router(crew_router, prefix="/api/tours/{tour_id}/crews")
 app.include_router(sport_router, prefix="/api/tours/{tour_id}/sports")
 app.include_router(tours_router, prefix="/api/tours")
 app.include_router(auth_router, prefix="/auth/google")
 app.include_router(me_router, prefix="/api/me")
-app.include_router(user_router,prefix="/api/admin/tours/{tour_id}/users")
+app.include_router(user_router,prefix="/api/admin/users")

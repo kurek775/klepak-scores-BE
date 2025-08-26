@@ -3,13 +3,12 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel , ConfigDict
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql import Select
 from models import User, Crew, crew_leaders
 from utils.admin import require_admin
-from db import get_db  
+from db import get_db
 
 api_router = APIRouter()
 
@@ -26,10 +25,10 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class UserWithCrewOut(UserOut):
-    crew_id: int  
+    crew_id: int
 
-
-@api_router.get("", response_model=List[UserWithCrewOut])
+# ASSIGNED leaders in a given tour (returns crew_id)
+@api_router.get("/tours/{tour_id}", response_model=List[UserWithCrewOut])
 async def list_users_for_tour(
     tour_id: int,
     limit: int = Query(100, ge=1, le=500),
@@ -52,19 +51,17 @@ async def list_users_for_tour(
         .select_from(User)
         .join(crew_leaders, crew_leaders.c.user_id == User.id)
         .join(Crew, Crew.id == crew_leaders.c.crew_id)
-        .where(User.is_admin == False)           
-        .where(Crew.tour_id == tour_id)           
+        .where(User.is_admin == False)
+        .where(Crew.tour_id == tour_id)
         .order_by(User.created_at.desc().nullslast())
         .limit(limit)
         .offset(offset)
     )
-
-    res = await db.execute(stmt)
-    rows = res.mappings().all()
+    rows = (await db.execute(stmt)).mappings().all()
     return [UserWithCrewOut(**row) for row in rows]
 
-
-@api_router.get("/pending", response_model=list[UserOut])
+# PENDING (not a leader of any crew in that tour)
+@api_router.get("/tours/{tour_id}/pending", response_model=List[UserOut])
 async def list_pending_users_for_tour(
     tour_id: int,
     limit: int = Query(100, ge=1, le=500),
@@ -75,19 +72,17 @@ async def list_pending_users_for_tour(
     assigned_exists = (
         select(crew_leaders.c.user_id)
         .join(Crew, Crew.id == crew_leaders.c.crew_id)
-        .where(Crew.tour_id == tour_id)
+        .where(Crew.tour_id == tour_id)                    
         .where(crew_leaders.c.user_id == User.id)
     ).exists()
 
     stmt = (
         select(User)
         .where(User.is_admin == False)
-        .where(~assigned_exists) 
+        .where(~assigned_exists)                           
         .order_by(User.created_at.desc().nullslast())
         .limit(limit)
         .offset(offset)
     )
-
-    res = await db.execute(stmt)
-    users = res.scalars().all() 
+    users = (await db.execute(stmt)).scalars().all()
     return [UserOut.model_validate(u, from_attributes=True) for u in users]
