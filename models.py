@@ -57,6 +57,8 @@ class Crew(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     number: Mapped[Optional[int]] = mapped_column(Integer)
+    tour_id: Mapped[Optional[int]] = mapped_column(ForeignKey("tours.id", ondelete="CASCADE"))
+    tour: Mapped[Optional["Tour"]] = relationship(lazy="joined")
 
     # leaders (users) via association
     leaders: Mapped[List[User]] = relationship(

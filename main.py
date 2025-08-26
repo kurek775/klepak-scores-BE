@@ -5,6 +5,7 @@ from routers.sport import api_router as sport_router
 from routers.tour import api_router as tours_router
 from routers.me import api_router as me_router
 from routers.auth import api_router as auth_router
+from routers.user import api_router as user_router
 from db import initialize_database
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -49,3 +50,4 @@ app.include_router(sport_router, prefix="/api/tours/{tour_id}/sports")
 app.include_router(tours_router, prefix="/api/tours")
 app.include_router(auth_router, prefix="/auth/google")
 app.include_router(me_router, prefix="/api/me")
+app.include_router(user_router,prefix="/api/admin/tours/{tour_id}/users")

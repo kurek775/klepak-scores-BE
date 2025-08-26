@@ -12,8 +12,6 @@ engine = create_async_engine(DATABASE_URL, echo=True)
 DATABASE_URL = "postgresql+asyncpg://myuser:mypassword@localhost:5432/mydb"
 
 engine = create_async_engine(DATABASE_URL, echo=True)
-
-# ✅ jediný způsob, jak tvořit session (async)
 async_session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 
