@@ -1,10 +1,10 @@
+# models.py  (patched)
 from __future__ import annotations
 
-from typing import List, Optional
 from datetime import datetime
+from typing import List, Optional
 
 from sqlalchemy import (
-    Column,
     String,
     Integer,
     Boolean,
@@ -13,103 +13,26 @@ from sqlalchemy import (
     LargeBinary,
     Float,
     ForeignKey,
-    Table,
-    UniqueConstraint,
     ForeignKeyConstraint,
+    UniqueConstraint,
+    CheckConstraint,
+    and_,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+    relationship,
+    foreign,
+)  # <-- add foreign
 
 
 class Base(DeclarativeBase):
     pass
 
 
-# --- Association table: users ↔ crews (leaders) ---
-crew_leaders = Table(
-    "crew_leaders",
-    Base.metadata,
-    Column("crew_id", ForeignKey("crews.id", ondelete="CASCADE"), primary_key=True),
-    Column("user_id", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
-)
-
-
-class User(Base):
-    __tablename__ = "users"
-    sub: Mapped[int]= mapped_column(Text)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    name: Mapped[Optional[str]] = mapped_column(String)
-    picture_url: Mapped[Optional[str]] = mapped_column(Text)
-    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-
-    # crews where this user is leader
-    leads_crews: Mapped[List["Crew"]] = relationship(
-        secondary=crew_leaders,
-        back_populates="leaders",
-        lazy="selectin",
-    )
-
-
-class Crew(Base):
-    __tablename__ = "crews"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    number: Mapped[Optional[int]] = mapped_column(Integer)
-    tour_id: Mapped[Optional[int]] = mapped_column(ForeignKey("tours.id", ondelete="CASCADE"))
-    tour: Mapped[Optional["Tour"]] = relationship(lazy="joined")
-
-    # leaders (users) via association
-    leaders: Mapped[List[User]] = relationship(
-        secondary=crew_leaders,
-        back_populates="leads_crews",
-        lazy="selectin",
-    )
-
-    # persons belonging to this crew
-    persons: Mapped[List["Person"]] = relationship(
-        back_populates="crew",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
-
-class Person(Base):
-    __tablename__ = "persons"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[Optional[str]] = mapped_column(String)
-    crew_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("crews.id", ondelete="SET NULL")
-    )
-
-    crew: Mapped[Optional[Crew]] = relationship(back_populates="persons", lazy="joined")
-
-    results: Mapped[List["Result"]] = relationship(
-        back_populates="person",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
-
-class Sport(Base):
-    __tablename__ = "sports"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    metric: Mapped[Optional[str]] = mapped_column(String)
-
-    tour_links: Mapped[List["TourSport"]] = relationship(
-        back_populates="sport",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
-
 class Template(Base):
     __tablename__ = "templates"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     bg_image: Mapped[Optional[bytes]] = mapped_column("bgImage", LargeBinary)
     font: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
@@ -120,6 +43,7 @@ class Template(Base):
     )
 
 
+# models.py (Tour)
 class Tour(Base):
     __tablename__ = "tours"
 
@@ -135,25 +59,134 @@ class Tour(Base):
         back_populates="tours", lazy="joined"
     )
 
+    crews: Mapped[List["Crew"]] = relationship(
+        back_populates="tour", lazy="selectin", cascade="all, delete-orphan"
+    )
+    users: Mapped[List["User"]] = relationship(
+        back_populates="tour", foreign_keys="[User.tour_id]", lazy="selectin"
+    )
+
+    # IMPORTANT: this must exist and be named exactly "sports"
     sports: Mapped[List["TourSport"]] = relationship(
-        back_populates="tour",
-        cascade="all, delete-orphan",
+        back_populates="tour", lazy="selectin", cascade="all, delete-orphan"
+    )
+
+    # view-only convenience (no direct FK in DB)
+    results: Mapped[List["Result"]] = relationship(
+        primaryjoin=lambda: Tour.id == foreign(Result.tour_id),
+        viewonly=True,
         lazy="selectin",
+    )
+
+
+class Crew(Base):
+    __tablename__ = "crews"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    number: Mapped[Optional[int]] = mapped_column(Integer)
+    tour_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("tours.id", ondelete="SET NULL", onupdate="CASCADE")
+    )
+
+    tour: Mapped[Optional[Tour]] = relationship(
+        back_populates="crews", lazy="joined", foreign_keys=[tour_id]
+    )
+
+    users: Mapped[List["User"]] = relationship(
+        back_populates="crew",
+        primaryjoin=lambda: and_(User.crew_id == Crew.id, User.tour_id == Crew.tour_id),
+        foreign_keys="[User.crew_id, User.tour_id]",
+        lazy="selectin",
+    )
+
+    persons: Mapped[List["Person"]] = relationship(
+        back_populates="crew", lazy="selectin", cascade="all, delete-orphan"
+    )
+
+
+# models.py (User)
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sub: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String)
+    picture_url: Mapped[Optional[str]] = mapped_column(Text)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    tour_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("tours.id", ondelete="SET NULL", onupdate="CASCADE"), nullable=True
+    )
+    # 🔧 was "ForeKey" before — must be ForeignKey
+    crew_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("crews.id", ondelete="SET NULL", onupdate="CASCADE"), nullable=True
+    )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tour_id", "crew_id"],
+            ["crews.tour_id", "crews.id"],
+            ondelete="SET NULL",
+            onupdate="CASCADE",
+            name="fk_users_crew_in_tour",
+        ),
+        CheckConstraint(
+            "crew_id IS NULL OR tour_id IS NOT NULL",
+            name="chk_users_crew_requires_tour",
+        ),
+    )
+
+    tour: Mapped[Optional["Tour"]] = relationship(
+        back_populates="users", foreign_keys=[tour_id], lazy="joined"
+    )
+    crew: Mapped[Optional["Crew"]] = relationship(
+        back_populates="users",
+        primaryjoin=lambda: and_(User.crew_id == Crew.id, User.tour_id == Crew.tour_id),
+        foreign_keys=[crew_id, tour_id],
+        lazy="joined",
+    )
+
+
+class Person(Base):
+    __tablename__ = "persons"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[Optional[str]] = mapped_column(String)
+    crew_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("crews.id", ondelete="SET NULL")
+    )
+
+    crew: Mapped[Optional[Crew]] = relationship(back_populates="persons", lazy="joined")
+
+    results: Mapped[List["Result"]] = relationship(
+        back_populates="person", lazy="selectin", cascade="all, delete-orphan"
+    )
+
+
+# models.py (Sport)
+class Sport(Base):
+    __tablename__ = "sports"
+    __table_args__ = (UniqueConstraint("name", name="uq_sports_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    metric: Mapped[Optional[str]] = mapped_column(String)
+
+    # must be named "tour_links" to match TourSport.sport.back_populates="tour_links"
+    tour_links: Mapped[List["TourSport"]] = relationship(
+        back_populates="sport", lazy="selectin", cascade="all, delete-orphan"
     )
 
     results: Mapped[List["Result"]] = relationship(
-        back_populates="tour",
-        cascade="all, delete-orphan",
+        primaryjoin=lambda: Sport.id == foreign(Result.sport_id),
+        viewonly=True,
         lazy="selectin",
     )
 
 
+# models.py (TourSport)
 class TourSport(Base):
-    """
-    Association object for the m:n relationship between Tour and Sport.
-    PK is composite (tour_id, sport_id).
-    """
-
     __tablename__ = "tour_sports"
 
     tour_id: Mapped[int] = mapped_column(
@@ -165,17 +198,16 @@ class TourSport(Base):
     position: Mapped[Optional[int]] = mapped_column(Integer)
     is_optional: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    tour: Mapped[Tour] = relationship(back_populates="sports", lazy="joined")
-    sport: Mapped[Sport] = relationship(back_populates="tour_links", lazy="joined")
+    # must match the name above on Tour
+    tour: Mapped["Tour"] = relationship(back_populates="sports", lazy="joined")
+    # and this must match Sport.tour_links (below)
+    sport: Mapped["Sport"] = relationship(back_populates="tour_links", lazy="joined")
 
     results: Mapped[List["Result"]] = relationship(
-        back_populates="tour_sport",
-        cascade="all, delete-orphan",
-        lazy="selectin",
+        back_populates="tour_sport", lazy="selectin", cascade="all, delete-orphan"
     )
 
 
-# --- Result model ---
 class Result(Base):
     __tablename__ = "results"
     __table_args__ = (
@@ -190,27 +222,34 @@ class Result(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-
-    # add direct FKs:
-    tour_id: Mapped[int] = mapped_column(
-        ForeignKey("tours.id", ondelete="CASCADE"), nullable=False
-    )
-    sport_id: Mapped[int] = mapped_column(
-        ForeignKey("sports.id", ondelete="RESTRICT"), nullable=False
-    )
+    # NOTE: these two are part of the composite FK to tour_sports, not direct FKs to tours/sports
+    tour_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    sport_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
     person_id: Mapped[int] = mapped_column(
         ForeignKey("persons.id", ondelete="CASCADE"), nullable=False
     )
     score: Mapped[Optional[float]] = mapped_column(Float)
 
-    tour: Mapped["Tour"] = relationship(back_populates="results", lazy="joined")
     person: Mapped["Person"] = relationship(back_populates="results", lazy="joined")
 
-    # link to the association (still useful)
+    # real FK target via the composite FK above
     tour_sport: Mapped["TourSport"] = relationship(
         back_populates="results",
-        primaryjoin="and_(Result.tour_id==TourSport.tour_id, Result.sport_id==TourSport.sport_id)",
+        primaryjoin=lambda: and_(
+            Result.tour_id == TourSport.tour_id, Result.sport_id == TourSport.sport_id
+        ),
+        lazy="joined",
+    )
+
+    # View-only conveniences (no direct FK in DB → annotate foreign())
+    tour: Mapped["Tour"] = relationship(
+        primaryjoin=lambda: foreign(Result.tour_id) == Tour.id,
+        viewonly=True,
+        lazy="joined",
+    )
+    sport: Mapped["Sport"] = relationship(
+        primaryjoin=lambda: foreign(Result.sport_id) == Sport.id,
         viewonly=True,
         lazy="joined",
     )

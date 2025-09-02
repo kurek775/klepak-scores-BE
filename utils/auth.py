@@ -22,6 +22,7 @@ from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
 log = logging.getLogger("auth")
 if not log.handlers:
     logging.basicConfig(
@@ -78,7 +79,6 @@ async def start_google_login(request: Request):
     )
 
 
-
 async def handle_google_callback(request: Request, db: AsyncSession):
     """Exchange code->token, verify ID token (Google JWKs), get-or-create user in DB, set cookie."""
     # Log sanitized callback
@@ -120,7 +120,7 @@ async def handle_google_callback(request: Request, db: AsyncSession):
             jwks = (await client.get(jwks_uri)).json()
 
         claims = jose_jwt.decode(idt, JsonWebKey.import_key_set(jwks))
-        claims.validate()  # exp/nbf/iat
+        claims.validate(leeway=120)
 
         iss = claims.get("iss")
         if iss not in {"https://accounts.google.com", "accounts.google.com"}:
@@ -150,7 +150,9 @@ async def handle_google_callback(request: Request, db: AsyncSession):
 
     # 3) Final checks
     if not sub or not email:
-        log.error("Invalid claims: missing sub/email. claim_keys=%s", list(claims.keys()))
+        log.error(
+            "Invalid claims: missing sub/email. claim_keys=%s", list(claims.keys())
+        )
         raise HTTPException(status_code=400, detail="Invalid Google userinfo")
 
     # 4) DB get-or-create (by sub; fallback by email)
@@ -168,7 +170,14 @@ async def handle_google_callback(request: Request, db: AsyncSession):
         if user:
             # update last_login_at + doplnění sub/name/picture, pokud je co
             user.last_login_at = func.now()
-            if getattr(user, "sub", None) in (None, "",) and sub:
+            if (
+                getattr(user, "sub", None)
+                in (
+                    None,
+                    "",
+                )
+                and sub
+            ):
                 user.sub = sub
             if google_name and user.name != google_name:
                 user.name = google_name
@@ -218,9 +227,9 @@ async def handle_google_callback(request: Request, db: AsyncSession):
     # 5) Build app token (použij jméno/fotku z DB, pokud jsou k dispozici)
     name_for_token = getattr(user, "name", None) or google_name
     picture_for_token = getattr(user, "picture_url", None) or google_picture
-    is_admin = getattr(user,"is_admin",None) or False
+    is_admin = getattr(user, "is_admin", None) or False
 
-    app_token = create_app_jwt(sub, is_admin,email, name_for_token, picture_for_token)
+    app_token = create_app_jwt(sub, is_admin, email, name_for_token, picture_for_token)
 
     resp = RedirectResponse(url=f"{settings.FRONTEND_URL}/auth/callback")
     resp.set_cookie(
@@ -233,6 +242,7 @@ async def handle_google_callback(request: Request, db: AsyncSession):
         path="/",
     )
     return resp
+
 
 def logout_response():
     resp = JSONResponse({"ok": True})
