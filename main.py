@@ -35,7 +35,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS", "PUT"],
     allow_headers=["*"],
 )
 app.add_middleware(
@@ -46,4 +46,4 @@ app.include_router(sport_router, prefix="/api/tours/{tour_id}/sports")
 app.include_router(tours_router, prefix="/api/tours")
 app.include_router(auth_router, prefix="/auth/google")
 app.include_router(me_router, prefix="/api/me")
-app.include_router(user_router,prefix="/api/admin/users")
+app.include_router(user_router, prefix="/api/admin/users")

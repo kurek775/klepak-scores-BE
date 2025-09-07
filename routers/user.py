@@ -1,11 +1,11 @@
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Body, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from models import User
 from utils.admin import require_admin
 from db import get_db
@@ -27,18 +27,11 @@ class UserOut(BaseModel):
 
 
 class UserWithCrewOut(UserOut):
-    # v /tours/{tour_id} může být crew_id NULL (uživatel je v tour, ale nemá team)
     crew_id: Optional[int] = None
 
 
-# --------- Endpoints ---------
-
-
-# 1) Admin: users bez tour (globální pending)
 @api_router.get("/pending", response_model=List[UserOut])
 async def list_users_without_tour(
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _admin_ok: bool = Depends(require_admin),
 ):
@@ -47,19 +40,50 @@ async def list_users_without_tour(
         .where(User.is_admin == False)
         .where(User.tour_id.is_(None))
         .order_by(User.created_at.desc().nullslast())
-        .limit(limit)
-        .offset(offset)
     )
     users = (await db.execute(stmt)).scalars().all()
     return [UserOut.model_validate(u, from_attributes=True) for u in users]
+
+
+class PendingUserUpdate(BaseModel):
+    id: int
+    tour_id: Optional[int] = None
+
+
+@api_router.put("/pending", response_model=List[UserOut])
+async def update_users_without_tour(
+    updates: List[PendingUserUpdate] = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _admin_ok: bool = Depends(require_admin),
+):
+    if not updates:
+        return {"updated": 0}
+
+    ids = [u.id for u in updates]
+    users = await db.execute(select(User).where(User.id.in_(ids)))
+    by_id = {u.id: u for u in users.scalars().all()}
+
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Users not found: {missing}")
+
+    updated = 0
+    for item in updates:
+        u = by_id[item.id]
+        if u.is_admin:
+            raise HTTPException(status_code=400, detail=f"User {u.id} is admin")
+
+        u.tour_id = item.tour_id
+        updated += 1
+
+    await db.commit()
+    return await list_users_without_tour(db)
 
 
 # 2) Users v konkrétní tour (crew_id může být NULL)
 @api_router.get("/tours/{tour_id}", response_model=List[UserWithCrewOut])
 async def list_users_for_tour(
     tour_id: int,
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _admin_ok: bool = Depends(require_admin),
 ):
@@ -78,8 +102,6 @@ async def list_users_for_tour(
         .where(User.is_admin == False)
         .where(User.tour_id == tour_id)
         .order_by(User.created_at.desc().nullslast())
-        .limit(limit)
-        .offset(offset)
     )
     rows = (await db.execute(stmt)).mappings().all()
     return [UserWithCrewOut(**row) for row in rows]
@@ -89,8 +111,6 @@ async def list_users_for_tour(
 @api_router.get("/tours/{tour_id}/no-crew", response_model=List[UserOut])
 async def list_users_for_tour_without_crew(
     tour_id: int,
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _admin_ok: bool = Depends(require_admin),
 ):
@@ -100,8 +120,6 @@ async def list_users_for_tour_without_crew(
         .where(User.tour_id == tour_id)
         .where(User.crew_id.is_(None))
         .order_by(User.created_at.desc().nullslast())
-        .limit(limit)
-        .offset(offset)
     )
     users = (await db.execute(stmt)).scalars().all()
     return [UserOut.model_validate(u, from_attributes=True) for u in users]
@@ -110,8 +128,6 @@ async def list_users_for_tour_without_crew(
 @api_router.get("/tours/{tour_id}/with-crew", response_model=List[UserWithCrewOut])
 async def list_users_for_tour_with_crew(
     tour_id: int,
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _admin_ok: bool = Depends(require_admin),
 ):
@@ -131,8 +147,6 @@ async def list_users_for_tour_with_crew(
         .where(User.tour_id == tour_id)
         .where(User.crew_id.is_not(None))
         .order_by(User.created_at.desc().nullslast())
-        .limit(limit)
-        .offset(offset)
     )
     rows = (await db.execute(stmt)).mappings().all()
     return [UserWithCrewOut(**row) for row in rows]
