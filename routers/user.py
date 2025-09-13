@@ -13,7 +13,6 @@ from db import get_db
 api_router = APIRouter()
 
 
-# --------- Pydantic models ---------
 class UserOut(BaseModel):
     id: int
     sub: Optional[str] = None

@@ -80,25 +80,9 @@ async def start_google_login(request: Request):
 
 
 async def handle_google_callback(request: Request, db: AsyncSession):
-    """Exchange code->token, verify ID token (Google JWKs), get-or-create user in DB, set cookie."""
-    # Log sanitized callback
-    log.info(
-        "OAuth callback: method=%s path=%s query=%s headers=%s session_keys=%s",
-        request.method,
-        request.url.path,
-        _safe_query(request.query_params),
-        _safe_headers(request.headers),
-        list(request.session.keys()),
-    )
-
-    # 1) Exchange authorization code -> tokens
     try:
         token = await oauth.google.authorize_access_token(request)
-        log.info(
-            "Token exchange OK; token_keys=%s id_token_present=%s",
-            list(token.keys()),
-            bool(token.get("id_token")),
-        )
+
     except Exception as e:
         status = getattr(getattr(e, "response", None), "status_code", None)
         body = getattr(getattr(e, "response", None), "text", "")
@@ -108,7 +92,6 @@ async def handle_google_callback(request: Request, db: AsyncSession):
             "token_exchange_failed", {"status": status or "", "etype": type(e).__name__}
         )
 
-    # 2) Verify raw id_token against Google JWKs
     idt = token.get("id_token")
     if not idt:
         log.error("Token does not contain id_token (keys=%s)", list(token.keys()))
@@ -137,7 +120,6 @@ async def handle_google_callback(request: Request, db: AsyncSession):
             log.error("Invalid nonce. expected=%s got=%s", nonce, claims.get("nonce"))
             return _redirect_err("id_token_invalid_nonce")
 
-        # Extract from claims
         sub = claims.get("sub")
         email = claims.get("email")
         google_name = claims.get("name")
@@ -148,27 +130,22 @@ async def handle_google_callback(request: Request, db: AsyncSession):
         log.debug("Trace:\n%s", traceback.format_exc())
         return _redirect_err("id_token_invalid", {"etype": type(e).__name__})
 
-    # 3) Final checks
     if not sub or not email:
         log.error(
             "Invalid claims: missing sub/email. claim_keys=%s", list(claims.keys())
         )
         raise HTTPException(status_code=400, detail="Invalid Google userinfo")
 
-    # 4) DB get-or-create (by sub; fallback by email)
     try:
-        # Try by sub (pokud máš sloupec users.sub)
         user = None
         res = await db.execute(select(User).where(User.sub == sub))
         user = res.scalars().first()
 
         if not user:
-            # Fallback by email (pro starší záznamy bez sub)
             res = await db.execute(select(User).where(User.email == email))
             user = res.scalars().first()
 
         if user:
-            # update last_login_at + doplnění sub/name/picture, pokud je co
             user.last_login_at = func.now()
             if (
                 getattr(user, "sub", None)
@@ -228,15 +205,18 @@ async def handle_google_callback(request: Request, db: AsyncSession):
     name_for_token = getattr(user, "name", None) or google_name
     picture_for_token = getattr(user, "picture_url", None) or google_picture
     is_admin = getattr(user, "is_admin", None) or False
-
-    app_token = create_app_jwt(sub, is_admin, email, name_for_token, picture_for_token)
+    crew_id = getattr(user, "crew_id", None) or False
+    tour_id = getattr(user, "tour_id", None) or False
+    app_token = create_app_jwt(
+        sub, is_admin, email, name_for_token, picture_for_token, crew_id, tour_id
+    )
 
     resp = RedirectResponse(url=f"{settings.FRONTEND_URL}/auth/callback")
     resp.set_cookie(
         key=COOKIE_NAME,
         value=app_token,
         httponly=True,
-        secure=False,  # True in prod (HTTPS)
+        secure=False,
         samesite="lax",
         max_age=60 * 60 * 12,
         path="/",
@@ -255,7 +235,6 @@ def get_user_from_cookie(request: Request) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        # Verify signature with your app secret
         return app_jwt.decode(
             token,
             settings.JWT_SECRET,
