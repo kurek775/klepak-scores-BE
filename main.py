@@ -42,7 +42,7 @@ app.add_middleware(
     SessionMiddleware, secret_key=settings.SESSION_SECRET, same_site="lax"
 )
 app.include_router(crew_router, prefix="/api/tours/{tour_id}/crews")
-app.include_router(sport_router, prefix="/api/tours/{tour_id}/sports")
+app.include_router(sport_router, prefix="/api/sports")
 app.include_router(tours_router, prefix="/api/tours")
 app.include_router(auth_router, prefix="/auth/google")
 app.include_router(me_router, prefix="/api/me")

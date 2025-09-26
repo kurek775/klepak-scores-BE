@@ -24,7 +24,6 @@ class ResultFromFrontend(BaseModel):
     score: float
 
 
-# --------- PUT: save results (UPSERT) ----------
 @api_router.put(
     "/{crew_id}/sport/{sport_id}",
     summary="Save results for given crew, sport and tour (bulk upsert)",
@@ -37,7 +36,6 @@ async def save_results_from_frontend(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        # 1) Sport must be part of the tour
         exists_ts = await db.scalar(
             select(func.count())
             .select_from(TourSport)
@@ -105,14 +103,6 @@ class FrontendResultRow(BaseModel):
 
 
 def normalize_score(value: int) -> float:
-    """
-    Coerce various FE formats to float:
-      - "074" -> 74
-      - "01"  -> 1
-      - " 10 " -> 10
-      - 10 / 10.5 stays as is
-      - "" or invalid -> 0
-    """
     if value is None:
         return 0.0
     if isinstance(value, (int, float)):
@@ -121,7 +111,6 @@ def normalize_score(value: int) -> float:
     if s == "":
         return 0.0
     try:
-        # Decimal handles "04", "01", "10.0" precisely
         return float(Decimal(s))
     except (InvalidOperation, ValueError):
         return 0.0
@@ -208,9 +197,6 @@ async def create_results_from_frontend(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# --------- GET: list persons in crew with result for given sport & tour ----------
-
-
 @api_router.get(
     "/{crew_id}/sport/{sport_id}",
     summary="Get persons with result for a given crew, sport and tour",
@@ -219,7 +205,6 @@ async def get_crew_results(
     crew_id: int, sport_id: int, tour_id: int, db: AsyncSession = Depends(get_db)
 ):
     try:
-        # ✅ Validate sport belongs to tour
         exists_ts = (
             await db.execute(
                 select(1)
@@ -240,7 +225,6 @@ async def get_crew_results(
                 detail="Sport is not part of the specified tour.",
             )
 
-        # LEFT OUTER JOIN persons -> result for this (tour, sport)
         R = aliased(Result)
         stmt = (
             select(

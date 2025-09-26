@@ -1,147 +1,175 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
-from pydantic import BaseModel, Field
-from collections.abc import AsyncGenerator
+from fastapi import APIRouter, Depends, HTTPException, Path, Body
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from pydantic import BaseModel, Field
 
 from db import async_session_maker
 from models import Sport, TourSport, Tour
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 api_router = APIRouter()
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_session():
     async with async_session_maker() as session:
         yield session
 
 
-# --- DTOs ---
 class SportDTO(BaseModel):
     sport_id: int | None
     sport_name: str
     sport_metric: str
 
 
-class SportListResponse(BaseModel):
+class SportList(BaseModel):
     list: List[SportDTO]
     count: int
 
 
-@api_router.get("/", summary="List sports for a tour", response_model=SportListResponse)
-async def get_sports(tour_id: int, db: AsyncSession = Depends(get_session)):
-    try:
-        stmt = (
-            select(
-                Sport.id.label("sport_id"),
-                Sport.name.label("sport_name"),
-                Sport.metric.label("sport_metric"),
+def _norm_name(s: str) -> str:
+    return " ".join(s.split()).strip()
+
+
+@api_router.get("/", response_model=SportList)
+async def get_all_sports(db: AsyncSession = Depends(get_session)):
+    rows = (
+        (
+            await db.execute(
+                select(
+                    Sport.id.label("sport_id"),
+                    Sport.name.label("sport_name"),
+                    Sport.metric.label("sport_metric"),
+                ).order_by(Sport.name)
             )
-            .join(TourSport, TourSport.sport_id == Sport.id)
-            .where(TourSport.tour_id == tour_id)
-            .order_by(Sport.name)
-            .distinct()
         )
-
-        # Use mappings() to get dict-like rows
-        rows = (await db.execute(stmt)).mappings().all()
-        items = [SportDTO(**row) for row in rows]
-        return SportListResponse(list=items, count=len(items))
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        .mappings()
+        .all()
+    )
+    items = [SportDTO(**row) for row in rows]
+    return SportList(list=items, count=len(items))
 
 
-# --- POST payload ---
-class TourSportInput(BaseModel):
-    name: str = Field(..., min_length=1)
-    metric: str = Field(..., min_length=1)
-
-
-class TourSportsCreateRequest(BaseModel):
-    sports: List[TourSportInput]
+@api_router.get("/tour/{tour_id}", response_model=SportList)
+async def get_sports(tour_id: int = Path(...), db: AsyncSession = Depends(get_session)):
+    rows = (
+        (
+            await db.execute(
+                select(
+                    Sport.id.label("sport_id"),
+                    Sport.name.label("sport_name"),
+                    Sport.metric.label("sport_metric"),
+                )
+                .join(TourSport, TourSport.sport_id == Sport.id)
+                .where(TourSport.tour_id == tour_id)
+                .order_by(Sport.name)
+                .distinct()
+            )
+        )
+        .mappings()
+        .all()
+    )
+    items = [SportDTO(**row) for row in rows]
+    return SportList(list=items, count=len(items))
 
 
 @api_router.post(
-    "/",
-    summary="Create/link sports and add them to a tour",
-    response_model=SportListResponse,
+    "/", summary="Create/update sports with unique names", response_model=SportList
 )
-async def add_sports_to_tour(
-    tour_id: int,
-    payload: TourSportsCreateRequest,
+async def upsert_sports(
+    payload: List[SportDTO] = Body(...),
     db: AsyncSession = Depends(get_session),
 ):
-    # 0) Validate tour exists (avoid FK error)
-    tour_row = await db.get(Tour, tour_id)
-    if tour_row is None:
-        raise HTTPException(status_code=404, detail=f"Tour {tour_id} not found")
+    incoming: List[SportDTO] = []
+    seen_names_lower: set[str] = set()
+    for s in payload or []:
+        name = _norm_name(s.sport_name)
+        metric = _norm_name(s.sport_metric)
+        if not name or not metric:
+            continue
 
-    # 1) Normalize + dedupe input
-    seen = set()
-    inputs = []
-    for item in payload.sports or []:
-        n = item.name.strip()
-        m = item.metric.strip()
-        if n and m and n not in seen:
-            inputs.append(TourSportInput(name=n, metric=m))
-            seen.add(n)
+        key = name.lower()
+        if key in seen_names_lower and s.sport_id is None:
+            raise HTTPException(
+                status_code=400, detail=f"Duplicate sport name in payload: '{name}'"
+            )
+        seen_names_lower.add(key)
 
-    # If empty payload, just return current state (works even if tour has no sports yet)
-    if not inputs:
-        return await get_sports(tour_id=tour_id, db=db)
+        incoming.append(
+            SportDTO(sport_id=s.sport_id, sport_name=name, sport_metric=metric)
+        )
+
+    to_update = [s for s in incoming if s.sport_id is not None]
+    to_create = [s for s in incoming if s.sport_id is None]
+
+    create_names_lower = {s.sport_name.lower() for s in to_create}
+    if create_names_lower:
+        existing = (
+            await db.execute(
+                select(Sport.id, Sport.name).where(
+                    func.lower(Sport.name).in_(create_names_lower)
+                )
+            )
+        ).all()
+        if existing:
+            collide = [name for (_, name) in existing]
+            raise HTTPException(
+                status_code=409, detail={"code": "name_exists", "names": collide}
+            )
+
+    if to_update:
+        desired = {int(s.sport_id): s.sport_name for s in to_update}
+        desired_lower = {nid: name.lower() for nid, name in desired.items()}
+        rows = (
+            await db.execute(
+                select(Sport.id, Sport.name).where(
+                    func.lower(Sport.name).in_(list(desired_lower.values()))
+                )
+            )
+        ).all()
+        for row_id, row_name in rows:
+            for upd_id, nm_lower in desired_lower.items():
+                if row_name.lower() == nm_lower and row_id != upd_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={"code": "name_exists", "names": [desired[upd_id]]},
+                    )
 
     try:
-        # 2) Find existing sports by name
-        names = [i.name for i in inputs]
-        existing_rows = (
-            (await db.execute(select(Sport).where(Sport.name.in_(names))))
-            .scalars()
-            .all()
-        )
-        existing_by_name = {s.name: s for s in existing_rows}
-
-        # 3) Create missing sports
-        to_create = [i for i in inputs if i.name not in existing_by_name]
-        for i in to_create:
-            db.add(Sport(name=i.name, metric=i.metric))
-        if to_create:
-            await db.flush()  # get IDs
-
-            # Refresh mapping with newly created sports
-            created_rows = (
-                (
-                    await db.execute(
-                        select(Sport).where(Sport.name.in_([i.name for i in to_create]))
-                    )
-                )
+        if to_update:
+            ids = [int(s.sport_id) for s in to_update]
+            db_rows = (
+                (await db.execute(select(Sport).where(Sport.id.in_(ids))))
                 .scalars()
                 .all()
             )
-            for s in created_rows:
-                existing_by_name[s.name] = s
+            by_id = {r.id: r for r in db_rows}
+            missing = [i for i in ids if i not in by_id]
+            if missing:
+                raise HTTPException(
+                    status_code=404, detail=f"Sports not found: {missing}"
+                )
 
-        # 4) Link all to the tour (idempotent)
-        link_values = [
-            {"tour_id": tour_id, "sport_id": existing_by_name[i.name].id}
-            for i in inputs
-        ]
-        if link_values:
-            insert_stmt = pg_insert(TourSport).values(link_values)
+            for s in to_update:
+                row = by_id[int(s.sport_id)]
+                row.name = s.sport_name
+                row.metric = s.sport_metric
+
+        if to_create:
             await db.execute(
-                insert_stmt.on_conflict_do_nothing(
-                    index_elements=["tour_id", "sport_id"]
+                pg_insert(Sport).values(
+                    [
+                        {"name": s.sport_name, "metric": s.sport_metric}
+                        for s in to_create
+                    ]
                 )
             )
 
-        # 5) Commit before reading back
         await db.commit()
 
-    except Exception as e:
+    except IntegrityError:
         await db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=409, detail={"code": "name_exists"})
 
-    # 6) Return the current list for the tour (can be empty if there were none before)
-    return await get_sports(tour_id=tour_id, db=db)
+    return await get_all_sports(db)
