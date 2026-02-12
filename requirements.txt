@@ -1,4 +1,13 @@
 asyncpg
-sqlalchemy
-openai
+sqlalchemy[asyncio]
 fastapi[all]
+pydantic-settings
+python-jose[cryptography]
+authlib
+httpx
+python-dotenv
+itsdangerous
+openai
+alembic
+pytest
+pytest-asyncio
