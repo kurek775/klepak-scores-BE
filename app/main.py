@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import text
 
 from app.database import engine, init_db
-from app.models.user import User  # noqa: F401 – register model before create_all
-from app.routers import admin, auth
+from app.models import Event, Group, Participant, User  # noqa: F401 – register models before create_all
+from app.routers import admin, auth, events
 
 
 @asynccontextmanager
@@ -27,6 +27,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(events.router)
 
 
 @app.get("/health")
