@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.models.event import EventStatus
+from app.schemas.group import EvaluatorRead
 
 
 class ParticipantRead(BaseModel):
@@ -28,6 +29,7 @@ class GroupDetailRead(BaseModel):
     name: str
     identifier: str
     participants: list[ParticipantRead] = []
+    evaluators: list[EvaluatorRead] = []
 
     model_config = {"from_attributes": True}
 

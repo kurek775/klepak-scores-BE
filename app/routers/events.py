@@ -17,6 +17,7 @@ from app.schemas.event import (
     ImportSummary,
     ParticipantRead,
 )
+from app.schemas.group import EvaluatorRead
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -73,6 +74,9 @@ def get_event(
                 identifier=group.identifier,
                 participants=[
                     ParticipantRead.model_validate(p) for p in group.participants
+                ],
+                evaluators=[
+                    EvaluatorRead.model_validate(e) for e in group.evaluators
                 ],
             )
             for group in event.groups

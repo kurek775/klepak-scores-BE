@@ -1,7 +1,13 @@
 import enum
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, Relationship, SQLModel
+
+from app.models.group_evaluator import GroupEvaluator
+
+if TYPE_CHECKING:
+    from app.models.group import Group
 
 
 class UserRole(str, enum.Enum):
@@ -17,3 +23,8 @@ class User(SQLModel, table=True):
     role: UserRole = Field(default=UserRole.EVALUATOR)
     is_active: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    assigned_groups: list["Group"] = Relationship(
+        back_populates="evaluators",
+        link_model=GroupEvaluator,
+    )
