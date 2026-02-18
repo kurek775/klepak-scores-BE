@@ -1,3 +1,7 @@
+import google.generativeai as genai
+import json
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
@@ -11,7 +15,38 @@ from app.models.record import Record
 from app.models.user import User
 from app.schemas.activity import BulkRecordCreate, RecordCreate, RecordRead
 
+
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
 router = APIRouter(tags=["records"])
+
+# --- AI Helper Function ---
+def _call_gemini_ocr(image_bytes: bytes, participant_names: List[str]) -> List[dict]:
+    """Helper to send image and participant list to Gemini."""
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    prompt = f"""
+    Extract scores from this handwritten sheet. 
+    Match names to this list: {participant_names}.
+    If a name is not in the list, ignore it.
+    Return ONLY a JSON array: [{{"name": "string", "value": number_or_string}}]
+    """
+    
+    response = model.generate_content([
+        prompt,
+        {{"mime_type": "image/jpeg", "data": image_bytes}}
+    ])
+    
+    # Clean markdown formatting if present
+    text_data = response.text.replace('```json', '').replace('```', '').strip()
+    return json.loads(text_data)
+
+
+
+
+
+
+
 
 
 def _check_evaluator_access(session: Session, user: User, participant_id: int) -> None:
