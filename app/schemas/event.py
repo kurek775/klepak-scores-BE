@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.models.event import EventStatus
+from app.schemas.activity import ActivityRead
 from app.schemas.group import EvaluatorRead
 
 
@@ -53,6 +54,7 @@ class EventDetailRead(BaseModel):
     created_by_id: int
     created_at: datetime
     groups: list[GroupDetailRead] = []
+    activities: list[ActivityRead] = []
 
     model_config = {"from_attributes": True}
 

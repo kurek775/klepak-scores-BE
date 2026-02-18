@@ -10,6 +10,7 @@ from app.models.event import Event
 from app.models.group import Group
 from app.models.participant import Participant
 from app.models.user import User
+from app.schemas.activity import ActivityRead
 from app.schemas.event import (
     EventDetailRead,
     EventRead,
@@ -80,6 +81,9 @@ def get_event(
                 ],
             )
             for group in event.groups
+        ],
+        activities=[
+            ActivityRead.model_validate(a) for a in event.activities
         ],
     )
 

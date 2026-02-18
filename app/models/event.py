@@ -6,6 +6,7 @@ from sqlalchemy import JSON, Column
 from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
+    from app.models.activity import Activity
     from app.models.group import Group
 
 
@@ -24,6 +25,10 @@ class Event(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     groups: list["Group"] = Relationship(
+        back_populates="event",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    activities: list["Activity"] = Relationship(
         back_populates="event",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
