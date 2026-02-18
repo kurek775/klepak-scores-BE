@@ -3,13 +3,12 @@ import io
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlmodel import Session, select
-
 from app.core.dependencies import get_current_active_user, get_current_admin
 from app.database import get_session
 from app.models.event import Event
 from app.models.group import Group
 from app.models.participant import Participant
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.activity import ActivityRead
 from app.schemas.event import (
     EventDetailRead,
@@ -54,7 +53,7 @@ def list_events(
 def get_event(
     event_id: int,
     session: Session = Depends(get_session),
-    _user: User = Depends(get_current_active_user),
+    _user: User = Depends(get_current_active_user), 
 ):
     event = session.get(Event, event_id)
     if not event:
@@ -62,6 +61,9 @@ def get_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Event not found",
         )
+
+    is_admin = _user.role == UserRole.ADMIN 
+
     return EventDetailRead(
         id=event.id,
         name=event.name,
@@ -81,6 +83,7 @@ def get_event(
                 ],
             )
             for group in event.groups
+            if is_admin or any(e.id == _user.id for e in group.evaluators)
         ],
         activities=[
             ActivityRead.model_validate(a) for a in event.activities
