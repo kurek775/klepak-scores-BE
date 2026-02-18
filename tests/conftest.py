@@ -67,7 +67,7 @@ def register_and_login(client: TestClient, email: str, password: str, full_name:
 @pytest.fixture(name="admin_token")
 def admin_token_fixture(client):
     """First registered user automatically becomes admin."""
-    return register_and_login(client, "admin@test.com", "adminpass123", "Admin User")
+    return register_and_login(client, "admin@test.com", "Password1!", "Admin User")
 
 
 @pytest.fixture(name="evaluator_token")
@@ -78,7 +78,7 @@ def evaluator_token_fixture(client, admin_token, engine):
 
     client.post(
         "/auth/register",
-        json={"email": "eval@test.com", "password": "evalpass123", "full_name": "Eval User"},
+        json={"email": "eval@test.com", "password": "Password1!", "full_name": "Eval User"},
     )
     # Activate via direct DB manipulation (admin would normally do this via /admin)
     with Session(engine) as session:
@@ -88,7 +88,7 @@ def evaluator_token_fixture(client, admin_token, engine):
             session.add(user)
             session.commit()
 
-    resp = client.post("/auth/login", json={"email": "eval@test.com", "password": "evalpass123"})
+    resp = client.post("/auth/login", json={"email": "eval@test.com", "password": "Password1!"})
     return resp.json()["access_token"]
 
 
