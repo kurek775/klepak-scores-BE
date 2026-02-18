@@ -169,46 +169,68 @@ def export_csv(
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
+    age_categories = session.exec(
+        select(AgeCategory).where(AgeCategory.event_id == event_id)
+    ).all()
+    has_age_categories = len(age_categories) > 0
+
     activities = session.exec(
         select(Activity).where(Activity.event_id == event_id)
     ).all()
 
-    groups = session.exec(
-        select(Group).where(Group.event_id == event_id)
-    ).all()
+    # Build participant lookup: participant_id -> (participant, group_name)
+    groups = session.exec(select(Group).where(Group.event_id == event_id)).all()
+    participant_map: dict[int, tuple[Participant, str]] = {}
+    for group in groups:
+        for p in session.exec(select(Participant).where(Participant.group_id == group.id)).all():
+            participant_map[p.id] = (p, group.name)
 
     output = io.StringIO()
     writer = csv.writer(output)
+    writer.writerow(["rank", "podium", "activity", "gender", "age_category", "participant_name", "group_name", "age", "score"])
 
-    writer.writerow(
-        ["group_name", "participant_name", "gender", "age"] + [a.name for a in activities]
-    )
+    for activity in activities:
+        records = session.exec(select(Record).where(Record.activity_id == activity.id)).all()
 
-    for group in groups:
-        participants = session.exec(
-            select(Participant).where(Participant.group_id == group.id)
-        ).all()
+        # Bucket by (gender, age_cat_name)
+        buckets: dict[tuple[str, str], list[tuple[Participant, str, str]]] = {}
+        for record in records:
+            if record.participant_id not in participant_map:
+                continue
+            participant, group_name = participant_map[record.participant_id]
+            gender = participant.gender or "?"
+            age_cat_name = _assign_age_category(participant.age, list(age_categories), has_age_categories)
+            key = (gender, age_cat_name)
+            buckets.setdefault(key, []).append((participant, record.value_raw, group_name))
 
-        for participant in participants:
-            row_values: list[str] = [
-                group.name,
-                participant.display_name,
-                participant.gender or "",
-                str(participant.age) if participant.age is not None else "",
-            ]
-            for activity in activities:
-                record = session.exec(
-                    select(Record).where(
-                        Record.participant_id == participant.id,
-                        Record.activity_id == activity.id,
-                    )
-                ).first()
-                row_values.append(record.value_raw if record else "")
-            writer.writerow(row_values)
+        for (gender, age_cat_name), entries in sorted(buckets.items()):
+            sorted_entries = sorted(
+                entries,
+                key=lambda e: _sort_key_for_record(e[1], activity.evaluation_type),
+            )
+            rank = 1
+            for i, (participant, value_raw, group_name) in enumerate(sorted_entries):
+                if i > 0:
+                    prev_key = _sort_key_for_record(sorted_entries[i - 1][1], activity.evaluation_type)
+                    curr_key = _sort_key_for_record(value_raw, activity.evaluation_type)
+                    if curr_key != prev_key:
+                        rank = i + 1
+                podium = {1: "Gold", 2: "Silver", 3: "Bronze"}.get(rank, "")
+                writer.writerow([
+                    rank,
+                    podium,
+                    activity.name,
+                    gender,
+                    age_cat_name,
+                    participant.display_name,
+                    group_name,
+                    participant.age if participant.age is not None else "",
+                    value_raw,
+                ])
 
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=event_{event_id}_export.csv"},
+        headers={"Content-Disposition": f"attachment; filename=event_{event_id}_results.csv"},
     )

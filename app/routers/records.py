@@ -23,13 +23,13 @@ router = APIRouter(tags=["records"])
 # --- AI Helper Function ---
 def _call_gemini_ocr(image_bytes: bytes, participant_names: list[str]) -> list[dict]:
     """Helper to send image and participant list to Gemini."""
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.0-flash')
 
     prompt = f"""
     Extract scores from this handwritten sheet.
     Match names to this list: {participant_names}.
     If a name is not in the list, ignore it.
-    Return ONLY a JSON array: [{{"name": "string", "value": number_or_string}}]
+    Return ONLY a JSON array: [{{"name": "string", "value": number}}]
     """
 
     response = model.generate_content([
