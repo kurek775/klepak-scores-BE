@@ -19,4 +19,5 @@ class DiplomaTemplate(SQLModel, table=True):
     orientation: DiplomaOrientation = Field(default=DiplomaOrientation.LANDSCAPE)
     items: list | None = Field(default=None, sa_column=Column(JSON))
     fonts: list | None = Field(default=None, sa_column=Column(JSON))
+    default_font: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)

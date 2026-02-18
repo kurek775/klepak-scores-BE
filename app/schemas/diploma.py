@@ -10,6 +10,7 @@ class DiplomaTemplateCreate(BaseModel):
     orientation: DiplomaOrientation = DiplomaOrientation.LANDSCAPE
     items: list[dict] = []
     fonts: list[dict] = []
+    default_font: str | None = None
 
 
 class DiplomaTemplateUpdate(BaseModel):
@@ -17,6 +18,7 @@ class DiplomaTemplateUpdate(BaseModel):
     orientation: DiplomaOrientation | None = None
     items: list[dict] | None = None
     fonts: list[dict] | None = None
+    default_font: str | None = None
 
 
 class DiplomaTemplateRead(BaseModel):
@@ -26,6 +28,7 @@ class DiplomaTemplateRead(BaseModel):
     orientation: DiplomaOrientation
     items: list[dict]
     fonts: list[dict]
+    default_font: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

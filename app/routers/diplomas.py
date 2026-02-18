@@ -35,6 +35,7 @@ def _to_read(t: DiplomaTemplate) -> DiplomaTemplateRead:
         orientation=t.orientation,
         items=t.items or [],
         fonts=t.fonts or [],
+        default_font=t.default_font,
         created_at=t.created_at,
     )
 
@@ -69,6 +70,7 @@ def create_diploma_template(
         orientation=body.orientation,
         items=body.items,
         fonts=body.fonts,
+        default_font=body.default_font,
     )
     session.add(template)
     session.commit()
@@ -96,6 +98,7 @@ def update_diploma_template(
         template.items = body.items
     if body.fonts is not None:
         template.fonts = body.fonts
+    template.default_font = body.default_font
 
     session.add(template)
     session.commit()
