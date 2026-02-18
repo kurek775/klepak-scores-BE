@@ -10,8 +10,8 @@ from sqlmodel import text
 
 from app.core.limiter import limiter
 from app.database import engine, init_db
-from app.models import Activity, AgeCategory, AuditLog, Event, Group, GroupEvaluator, Participant, Record, User  # noqa: F401 – register models before create_all
-from app.routers import activities, admin, analytics, audit, auth, events, groups, records
+from app.models import Activity, AgeCategory, AuditLog, DiplomaTemplate, Event, Group, GroupEvaluator, Participant, Record, User  # noqa: F401 – register models before create_all
+from app.routers import activities, admin, analytics, audit, auth, diplomas, events, groups, records
 
 
 @asynccontextmanager
@@ -41,6 +41,7 @@ app.include_router(activities.router)
 app.include_router(records.router)
 app.include_router(analytics.router)
 app.include_router(audit.router)
+app.include_router(diplomas.router)
 
 
 @app.get("/health")
