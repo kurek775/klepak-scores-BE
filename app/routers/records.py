@@ -2,7 +2,7 @@ import google.generativeai as genai
 import json
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlmodel import Session, select
 
 from app.core.dependencies import get_current_active_user
@@ -21,25 +21,71 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 router = APIRouter(tags=["records"])
 
 # --- AI Helper Function ---
-def _call_gemini_ocr(image_bytes: bytes, participant_names: List[str]) -> List[dict]:
+def _call_gemini_ocr(image_bytes: bytes, participant_names: list[str]) -> list[dict]:
     """Helper to send image and participant list to Gemini."""
     model = genai.GenerativeModel('gemini-1.5-flash')
-    
+
     prompt = f"""
-    Extract scores from this handwritten sheet. 
+    Extract scores from this handwritten sheet.
     Match names to this list: {participant_names}.
     If a name is not in the list, ignore it.
     Return ONLY a JSON array: [{{"name": "string", "value": number_or_string}}]
     """
-    
+
     response = model.generate_content([
         prompt,
-        {{"mime_type": "image/jpeg", "data": image_bytes}}
+        {"mime_type": "image/jpeg", "data": image_bytes},
     ])
-    
+
     # Clean markdown formatting if present
     text_data = response.text.replace('```json', '').replace('```', '').strip()
     return json.loads(text_data)
+
+
+@router.post("/records/process-image")
+async def process_image(
+    file: UploadFile = File(...),
+    activity_id: int = Form(...),
+    group_id: int = Form(...),
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    activity = session.get(Activity, activity_id)
+    if not activity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
+
+    link = session.exec(
+        select(GroupEvaluator).where(
+            GroupEvaluator.group_id == group_id,
+            GroupEvaluator.user_id == user.id,
+        )
+    ).first()
+    if not link:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not assigned to this group")
+
+    participants = session.exec(
+        select(Participant).where(Participant.group_id == group_id)
+    ).all()
+
+    image_bytes = await file.read()
+    participant_names = [p.display_name for p in participants]
+
+    ocr_results = _call_gemini_ocr(image_bytes, participant_names)
+
+    matched = []
+    for result in ocr_results:
+        name_lower = result["name"].lower()
+        for p in participants:
+            p_lower = p.display_name.lower()
+            if name_lower in p_lower or p_lower in name_lower:
+                matched.append({
+                    "participant_id": p.id,
+                    "value": str(result["value"]),
+                    "name": p.display_name,
+                })
+                break
+
+    return matched
 
 
 

@@ -7,8 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import text
 
 from app.database import engine, init_db
-from app.models import Activity, Event, Group, GroupEvaluator, Participant, Record, User  # noqa: F401 – register models before create_all
-from app.routers import activities, admin, auth, events, groups, records
+from app.models import Activity, AgeCategory, Event, Group, GroupEvaluator, Participant, Record, User  # noqa: F401 – register models before create_all
+from app.routers import activities, admin, analytics, auth, events, groups, records
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ app.include_router(events.router)
 app.include_router(groups.router)
 app.include_router(activities.router)
 app.include_router(records.router)
+app.include_router(analytics.router)
 
 
 @app.get("/health")

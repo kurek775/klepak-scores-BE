@@ -12,6 +12,8 @@ class Participant(SQLModel, table=True):
     display_name: str
     external_id: str | None = Field(default=None)
     metadata_json: dict | None = Field(default=None, sa_column=Column(JSON))
+    gender: str | None = Field(default=None)
+    age: int | None = Field(default=None)
     group_id: int = Field(foreign_key="group.id")
 
     group: "Group" = Relationship(back_populates="participants")

@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlmodel import Session, select
 from app.core.dependencies import get_current_active_user, get_current_admin
 from app.database import get_session
+from app.models.age_category import AgeCategory
 from app.models.event import Event
 from app.models.group import Group
 from app.models.participant import Participant
 from app.models.user import User, UserRole
 from app.schemas.activity import ActivityRead
+from app.schemas.age_category import AgeCategoryCreate, AgeCategoryRead
 from app.schemas.event import (
     EventDetailRead,
     EventRead,
@@ -22,7 +24,7 @@ from app.schemas.group import EvaluatorRead
 router = APIRouter(prefix="/events", tags=["events"])
 
 REQUIRED_COLUMNS = {"display_name", "group_name"}
-KNOWN_COLUMNS = {"display_name", "group_name", "group_identifier", "external_id"}
+KNOWN_COLUMNS = {"display_name", "group_name", "group_identifier", "external_id", "gender", "age"}
 
 
 @router.get("", response_model=list[EventRead])
@@ -53,7 +55,7 @@ def list_events(
 def get_event(
     event_id: int,
     session: Session = Depends(get_session),
-    _user: User = Depends(get_current_active_user), 
+    _user: User = Depends(get_current_active_user),
 ):
     event = session.get(Event, event_id)
     if not event:
@@ -62,7 +64,7 @@ def get_event(
             detail="Event not found",
         )
 
-    is_admin = _user.role == UserRole.ADMIN 
+    is_admin = _user.role == UserRole.ADMIN
 
     return EventDetailRead(
         id=event.id,
@@ -177,10 +179,15 @@ def import_event(
     for row in rows:
         group = group_map[row["group_name"]]
         metadata = {col: row.get(col, "") for col in extra_columns} if extra_columns else None
+        gender = row.get("gender") or None
+        age_raw = row.get("age", "")
+        age = int(age_raw) if age_raw and age_raw.isdigit() else None
         participant = Participant(
             display_name=row["display_name"],
             external_id=row.get("external_id") or None,
             metadata_json=metadata,
+            gender=gender,
+            age=age,
             group_id=group.id,
         )
         session.add(participant)
@@ -209,4 +216,59 @@ def delete_event(
             detail="Event not found",
         )
     session.delete(event)
+    session.commit()
+
+
+# ── Age-category endpoints ────────────────────────────────────────────────────
+
+@router.get("/{event_id}/age-categories", response_model=list[AgeCategoryRead])
+def list_age_categories(
+    event_id: int,
+    session: Session = Depends(get_session),
+    _user: User = Depends(get_current_active_user),
+):
+    event = session.get(Event, event_id)
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    cats = session.exec(
+        select(AgeCategory).where(AgeCategory.event_id == event_id)
+    ).all()
+    return [AgeCategoryRead.model_validate(c) for c in cats]
+
+
+@router.post(
+    "/{event_id}/age-categories",
+    response_model=AgeCategoryRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_age_category(
+    event_id: int,
+    body: AgeCategoryCreate,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    event = session.get(Event, event_id)
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    cat = AgeCategory(event_id=event_id, name=body.name, min_age=body.min_age, max_age=body.max_age)
+    session.add(cat)
+    session.commit()
+    session.refresh(cat)
+    return AgeCategoryRead.model_validate(cat)
+
+
+@router.delete(
+    "/{event_id}/age-categories/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_age_category(
+    event_id: int,
+    category_id: int,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    cat = session.get(AgeCategory, category_id)
+    if not cat or cat.event_id != event_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Age category not found")
+    session.delete(cat)
     session.commit()

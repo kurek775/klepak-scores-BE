@@ -11,6 +11,8 @@ class ParticipantRead(BaseModel):
     id: int
     display_name: str
     external_id: str | None = None
+    gender: str | None = None
+    age: int | None = None
     metadata: dict | None = Field(default=None, alias="metadata_json")
 
     model_config = {"from_attributes": True, "populate_by_name": True}
