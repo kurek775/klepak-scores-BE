@@ -2,10 +2,11 @@ import google.generativeai as genai
 import json
 import os
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlmodel import Session, select
 
 from app.core.dependencies import get_current_active_user
+from app.core.limiter import limiter
 from app.database import get_session
 from app.models.activity import Activity
 from app.models.group import Group
@@ -19,6 +20,8 @@ from app.schemas.activity import BulkRecordCreate, RecordCreate, RecordRead
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 router = APIRouter(tags=["records"])
+
+_5MB = 5 * 1024 * 1024
 
 # --- AI Helper Function ---
 def _call_gemini_ocr(image_bytes: bytes, participant_names: list[str]) -> list[dict]:
@@ -43,7 +46,9 @@ def _call_gemini_ocr(image_bytes: bytes, participant_names: list[str]) -> list[d
 
 
 @router.post("/records/process-image")
+@limiter.limit("20/minute")
 async def process_image(
+    request: Request,
     file: UploadFile = File(...),
     activity_id: int = Form(...),
     group_id: int = Form(...),
@@ -68,9 +73,19 @@ async def process_image(
     ).all()
 
     image_bytes = await file.read()
+
+    if len(image_bytes) > _5MB:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image file exceeds the 5 MB limit")
+
     participant_names = [p.display_name for p in participants]
 
-    ocr_results = _call_gemini_ocr(image_bytes, participant_names)
+    try:
+        ocr_results = _call_gemini_ocr(image_bytes, participant_names)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Gemini OCR service error: {exc}",
+        )
 
     matched = []
     for result in ocr_results:
@@ -86,13 +101,6 @@ async def process_image(
                 break
 
     return matched
-
-
-
-
-
-
-
 
 
 def _check_evaluator_access(session: Session, user: User, participant_id: int) -> None:
@@ -158,6 +166,11 @@ def submit_record(
     record = _upsert_record(session, user, body.activity_id, body.participant_id, body.value_raw)
     session.commit()
     session.refresh(record)
+
+    # Invalidate leaderboard cache for this event
+    from app.core.cache import leaderboard_cache
+    leaderboard_cache.pop(activity.event_id, None)
+
     return RecordRead.model_validate(record)
 
 
@@ -181,6 +194,11 @@ def submit_bulk_records(
     session.commit()
     for r in results:
         session.refresh(r)
+
+    # Invalidate leaderboard cache for this event
+    from app.core.cache import leaderboard_cache
+    leaderboard_cache.pop(activity.event_id, None)
+
     return [RecordRead.model_validate(r) for r in results]
 
 

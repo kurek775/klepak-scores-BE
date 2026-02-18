@@ -1,9 +1,10 @@
 import csv
 import io
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlmodel import Session, select
 from app.core.dependencies import get_current_active_user, get_current_admin
+from app.core.limiter import limiter
 from app.database import get_session
 from app.models.age_category import AgeCategory
 from app.models.event import Event
@@ -94,7 +95,9 @@ def get_event(
 
 
 @router.post("/import", response_model=ImportSummary, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
 def import_event(
+    request: Request,
     event_name: str = Form(...),
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
@@ -110,6 +113,11 @@ def import_event(
     # Read and decode file content (utf-8-sig handles Excel BOM)
     try:
         raw = file.file.read()
+        if len(raw) > 5 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CSV file exceeds the 5 MB limit",
+            )
         content = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise HTTPException(

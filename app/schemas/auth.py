@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.models.user import UserRole
 
@@ -9,6 +9,13 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     full_name: str
+
+    @field_validator('password')
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        return v
 
 
 class LoginRequest(BaseModel):

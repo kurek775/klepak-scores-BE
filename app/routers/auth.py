@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import Session, select
 
 from app.core.dependencies import get_current_user
+from app.core.limiter import limiter
 from app.core.security import create_access_token, hash_password, verify_password
 from app.database import get_session
 from app.models.user import User, UserRole
@@ -16,7 +17,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def register(body: RegisterRequest, session: Session = Depends(get_session)):
+@limiter.limit("5/minute")
+def register(request: Request, body: RegisterRequest, session: Session = Depends(get_session)):
     existing = session.exec(select(User).where(User.email == body.email)).first()
     if existing:
         raise HTTPException(
@@ -43,7 +45,8 @@ def register(body: RegisterRequest, session: Session = Depends(get_session)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, session: Session = Depends(get_session)):
+@limiter.limit("10/minute")
+def login(request: Request, body: LoginRequest, session: Session = Depends(get_session)):
     user = session.exec(select(User).where(User.email == body.email)).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(
