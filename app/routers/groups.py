@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.audit import log_action
 from app.core.dependencies import get_current_active_user, get_current_admin
 from app.database import get_session
 from app.models.group import Group
@@ -103,6 +104,11 @@ def remove_evaluator(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Assignment not found",
         )
+    log_action(
+        session, _admin.id, "DELETE_GROUP_EVALUATOR",
+        resource_type="group", resource_id=group_id,
+        detail=f"user_id={user_id}",
+    )
     session.delete(link)
     session.commit()
 

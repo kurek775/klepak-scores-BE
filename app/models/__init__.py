@@ -1,5 +1,6 @@
 from app.models.activity import Activity, EvaluationType
 from app.models.age_category import AgeCategory
+from app.models.audit_log import AuditLog
 from app.models.event import Event, EventStatus
 from app.models.group import Group
 from app.models.group_evaluator import GroupEvaluator
@@ -10,6 +11,7 @@ from app.models.user import User, UserRole
 __all__ = [
     "Activity",
     "AgeCategory",
+    "AuditLog",
     "EvaluationType",
     "Event",
     "EventStatus",

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.audit import log_action
 from app.core.dependencies import get_current_admin
 from app.database import get_session
 from app.models.user import User
@@ -39,8 +40,19 @@ def update_user(
         )
 
     if body.role is not None:
+        log_action(
+            session, admin.id, "CHANGE_ROLE",
+            resource_type="user", resource_id=user.id,
+            detail=f"{user.role} -> {body.role}",
+        )
         user.role = body.role
+
     if body.is_active is not None:
+        log_action(
+            session, admin.id, "CHANGE_STATUS",
+            resource_type="user", resource_id=user.id,
+            detail=f"is_active={body.is_active}",
+        )
         user.is_active = body.is_active
 
     session.add(user)

@@ -3,6 +3,7 @@ import io
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlmodel import Session, select
+from app.core.audit import log_action
 from app.core.dependencies import get_current_active_user, get_current_admin
 from app.core.limiter import limiter
 from app.database import get_session
@@ -223,6 +224,11 @@ def delete_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Event not found",
         )
+    log_action(
+        session, _admin.id, "DELETE_EVENT",
+        resource_type="event", resource_id=event_id,
+        detail=event.name,
+    )
     session.delete(event)
     session.commit()
 
