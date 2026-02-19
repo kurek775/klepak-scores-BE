@@ -8,12 +8,27 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-klepak}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     volumes:
       - redisdata:/data
     restart: unless-stopped
+
+  migrate:
+    build: .
+    command: alembic upgrade head
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-klepak}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-klepak_scores}
+    depends_on:
+      db:
+        condition: service_healthy
 
   api:
     build: .
@@ -24,8 +39,10 @@ services:
       REDIS_URL: redis://redis:6379
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
     depends_on:
-      - db
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   lb:

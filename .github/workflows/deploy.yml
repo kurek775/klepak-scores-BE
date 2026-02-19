@@ -29,7 +29,8 @@ jobs:
             set -e
             cd ~/klepak-app
             git pull origin main
-            docker compose -f docker-compose.prod.yml --env-file .env build api
+            docker compose -f docker-compose.prod.yml --env-file .env build api migrate
+            docker compose -f docker-compose.prod.yml --env-file .env run --rm migrate
             docker compose -f docker-compose.prod.yml --env-file .env up -d --no-build --scale api=3
             docker image prune -f
             echo "Backend deployed — 3 replicas running"
