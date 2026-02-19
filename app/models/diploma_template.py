@@ -16,7 +16,7 @@ class DiplomaTemplate(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     event_id: int = Field(foreign_key="event.id", index=True)
     bg_image_url: str | None = Field(default=None)
-    orientation: DiplomaOrientation = Field(default=DiplomaOrientation.LANDSCAPE)
+    orientation: DiplomaOrientation = Field(default=DiplomaOrientation.PORTRAIT)
     items: list | None = Field(default=None, sa_column=Column(JSON))
     fonts: list | None = Field(default=None, sa_column=Column(JSON))
     default_font: str | None = Field(default=None)

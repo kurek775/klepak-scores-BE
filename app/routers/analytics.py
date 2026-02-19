@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
-from app.core.cache import leaderboard_cache
+from app.core.redis_client import redis_client
 from app.core.dependencies import get_current_active_user
 from app.database import get_session
 from app.models.activity import Activity, EvaluationType
@@ -54,8 +54,12 @@ def get_leaderboard(
     session: Session = Depends(get_session),
     _user: User = Depends(get_current_active_user),
 ):
-    if event_id in leaderboard_cache:
-        return leaderboard_cache[event_id]
+    try:
+        cached = redis_client.get(f"leaderboard:{event_id}")
+        if cached:
+            return LeaderboardResponse.model_validate_json(cached)
+    except Exception:
+        pass
 
     event = session.get(Event, event_id)
     if not event:
@@ -158,7 +162,10 @@ def get_leaderboard(
         has_age_categories=has_age_categories,
         activities=activity_leaderboards,
     )
-    leaderboard_cache[event_id] = result
+    try:
+        redis_client.setex(f"leaderboard:{event_id}", 30, result.model_dump_json())
+    except Exception:
+        pass
     return result
 
 
