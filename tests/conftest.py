@@ -12,8 +12,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
-from unittest.mock import patch
-
 from app.database import get_session
 from app.main import app
 from app.core.limiter import limiter
@@ -50,11 +48,8 @@ def client_fixture(engine):
             yield session
 
     app.dependency_overrides[get_session] = override_get_session
-    # Patch init_db so the lifespan doesn't try to connect to PostgreSQL.
-    # The SQLite tables are already created by the engine fixture.
-    with patch("app.main.init_db"):
-        with TestClient(app, raise_server_exceptions=True) as client:
-            yield client
+    with TestClient(app, raise_server_exceptions=True) as client:
+        yield client
     app.dependency_overrides.clear()
 
 
