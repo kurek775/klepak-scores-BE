@@ -1,5 +1,6 @@
 import csv
 import io
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -79,21 +80,28 @@ def get_leaderboard(
 
     # Build participant lookup: participant_id -> (participant, group_name)
     groups = session.exec(select(Group).where(Group.event_id == event_id)).all()
-    participant_map: dict[int, tuple[Participant, str]] = {}
-    for group in groups:
-        participants = session.exec(
-            select(Participant).where(Participant.group_id == group.id)
-        ).all()
-        for p in participants:
-            participant_map[p.id] = (p, group.name)
+    group_name_map = {g.id: g.name for g in groups}
+    participants = session.exec(
+        select(Participant).join(Group, Participant.group_id == Group.id)
+        .where(Group.event_id == event_id)
+    ).all()
+    participant_map: dict[int, tuple[Participant, str]] = {
+        p.id: (p, group_name_map[p.group_id]) for p in participants
+    }
+
+    # Fetch all records for this event in one query
+    all_records = session.exec(
+        select(Record).join(Activity, Record.activity_id == Activity.id)
+        .where(Activity.event_id == event_id)
+    ).all()
+    records_by_activity: dict[int, list[Record]] = defaultdict(list)
+    for r in all_records:
+        records_by_activity[r.activity_id].append(r)
 
     activity_leaderboards: list[ActivityLeaderboard] = []
 
     for activity in activities:
-        # Fetch all records for this activity
-        records = session.exec(
-            select(Record).where(Record.activity_id == activity.id)
-        ).all()
+        records = records_by_activity[activity.id]
 
         # Group records into (gender, age_cat_name) buckets
         buckets: dict[tuple[str, str], list[tuple[Participant, str, str]]] = {}
@@ -193,17 +201,30 @@ def export_csv(
 
     # Build participant lookup: participant_id -> (participant, group_name)
     groups = session.exec(select(Group).where(Group.event_id == event_id)).all()
-    participant_map: dict[int, tuple[Participant, str]] = {}
-    for group in groups:
-        for p in session.exec(select(Participant).where(Participant.group_id == group.id)).all():
-            participant_map[p.id] = (p, group.name)
+    group_name_map = {g.id: g.name for g in groups}
+    participants = session.exec(
+        select(Participant).join(Group, Participant.group_id == Group.id)
+        .where(Group.event_id == event_id)
+    ).all()
+    participant_map: dict[int, tuple[Participant, str]] = {
+        p.id: (p, group_name_map[p.group_id]) for p in participants
+    }
+
+    # Fetch all records for this event in one query
+    all_records = session.exec(
+        select(Record).join(Activity, Record.activity_id == Activity.id)
+        .where(Activity.event_id == event_id)
+    ).all()
+    records_by_activity: dict[int, list[Record]] = defaultdict(list)
+    for r in all_records:
+        records_by_activity[r.activity_id].append(r)
 
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["rank", "podium", "activity", "gender", "age_category", "participant_name", "group_name", "age", "score"])
 
     for activity in activities:
-        records = session.exec(select(Record).where(Record.activity_id == activity.id)).all()
+        records = records_by_activity[activity.id]
 
         # Bucket by (gender, age_cat_name)
         buckets: dict[tuple[str, str], list[tuple[Participant, str, str]]] = {}

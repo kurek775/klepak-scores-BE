@@ -10,14 +10,12 @@ from slowapi.errors import RateLimitExceeded
 from sqlmodel import text
 
 from app.core.limiter import limiter
-from app.database import engine, init_db
-from app.models import Activity, AgeCategory, AuditLog, DiplomaTemplate, Event, Group, GroupEvaluator, Participant, Record, User  # noqa: F401 – register models before create_all
+from app.database import engine
 from app.routers import activities, admin, analytics, audit, auth, diplomas, events, groups, records
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
     yield
 
 
@@ -26,13 +24,13 @@ app = FastAPI(title="Klepak Scores API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",")
+_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",")]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(auth.router)

@@ -5,6 +5,9 @@ Uses an in-memory SQLite engine so tests have no dependency on PostgreSQL.
 The `get_session` dependency is overridden in the FastAPI app for every test.
 """
 
+import os
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine

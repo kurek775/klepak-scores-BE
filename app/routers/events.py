@@ -2,7 +2,7 @@ import csv
 import io
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 from app.core.audit import log_action
 from app.core.dependencies import get_current_active_user, get_current_admin
 from app.core.limiter import limiter
@@ -35,22 +35,31 @@ def list_events(
     _user: User = Depends(get_current_active_user),
 ):
     events = session.exec(select(Event)).all()
-    result = []
-    for event in events:
-        group_count = len(event.groups)
-        participant_count = sum(len(g.participants) for g in event.groups)
-        result.append(
-            EventRead(
-                id=event.id,
-                name=event.name,
-                status=event.status,
-                created_by_id=event.created_by_id,
-                created_at=event.created_at,
-                group_count=group_count,
-                participant_count=participant_count,
-            )
+
+    group_rows = session.exec(
+        select(Group.event_id, func.count(Group.id).label("cnt")).group_by(Group.event_id)
+    ).all()
+    group_counts = {event_id: cnt for event_id, cnt in group_rows}
+
+    part_rows = session.exec(
+        select(Group.event_id, func.count(Participant.id).label("cnt"))
+        .join(Participant, Participant.group_id == Group.id)
+        .group_by(Group.event_id)
+    ).all()
+    participant_counts = {event_id: cnt for event_id, cnt in part_rows}
+
+    return [
+        EventRead(
+            id=event.id,
+            name=event.name,
+            status=event.status,
+            created_by_id=event.created_by_id,
+            created_at=event.created_at,
+            group_count=group_counts.get(event.id, 0),
+            participant_count=participant_counts.get(event.id, 0),
         )
-    return result
+        for event in events
+    ]
 
 
 @router.get("/{event_id}", response_model=EventDetailRead)
