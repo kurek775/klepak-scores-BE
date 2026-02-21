@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, select
+from sqlmodel import Session, or_, select
 
 from app.core.audit import log_action
 from app.core.dependencies import get_current_admin
 from app.database import get_session
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.auth import UserRead, UserUpdate
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -13,9 +13,13 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @router.get("/users", response_model=list[UserRead])
 def list_users(
     session: Session = Depends(get_session),
-    _admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ):
-    users = session.exec(select(User)).all()
+    users = session.exec(
+        select(User).where(
+            or_(User.role != UserRole.ADMIN, User.id == admin.id)
+        )
+    ).all()
     return users
 
 
@@ -33,10 +37,10 @@ def update_user(
             detail="User not found",
         )
 
-    if user.id == admin.id and body.is_active is False:
+    if user.role == UserRole.ADMIN:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot deactivate your own account",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot modify admin accounts",
         )
 
     if body.role is not None:

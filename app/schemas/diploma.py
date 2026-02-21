@@ -6,6 +6,7 @@ from app.models.diploma_template import DiplomaOrientation
 
 
 class DiplomaTemplateCreate(BaseModel):
+    name: str = "Default"
     bg_image_url: str | None = None
     orientation: DiplomaOrientation = DiplomaOrientation.LANDSCAPE
     items: list[dict] = []
@@ -14,6 +15,7 @@ class DiplomaTemplateCreate(BaseModel):
 
 
 class DiplomaTemplateUpdate(BaseModel):
+    name: str | None = None
     bg_image_url: str | None = None
     orientation: DiplomaOrientation | None = None
     items: list[dict] | None = None
@@ -24,6 +26,7 @@ class DiplomaTemplateUpdate(BaseModel):
 class DiplomaTemplateRead(BaseModel):
     id: int
     event_id: int
+    name: str
     bg_image_url: str | None
     orientation: DiplomaOrientation
     items: list[dict]

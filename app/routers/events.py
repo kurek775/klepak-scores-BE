@@ -213,6 +213,23 @@ def import_event(
 
     session.commit()
 
+    # Auto-create a default diploma template for the new event
+    from app.models.diploma_template import DiplomaTemplate, DiplomaOrientation
+    default_tpl = DiplomaTemplate(
+        event_id=event.id,
+        name="Default",
+        orientation=DiplomaOrientation.LANDSCAPE,
+        items=[
+            {"type": "DYNAMIC", "key": "participant_name", "x": 50, "y": 38, "fontSize": 42, "fontWeight": "bold",   "color": "#1a1a1a", "centerH": True, "centerV": False},
+            {"type": "DYNAMIC", "key": "place",            "x": 50, "y": 56, "fontSize": 30, "fontWeight": "normal", "color": "#444444", "centerH": True, "centerV": False},
+            {"type": "DYNAMIC", "key": "activity",         "x": 50, "y": 68, "fontSize": 20, "fontWeight": "normal", "color": "#666666", "centerH": True, "centerV": False},
+        ],
+        fonts=[],
+        default_font=None,
+    )
+    session.add(default_tpl)
+    session.commit()
+
     return ImportSummary(
         event_id=event.id,
         event_name=event.name,
