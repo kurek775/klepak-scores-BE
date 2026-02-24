@@ -6,7 +6,8 @@ The `get_session` dependency is overridden in the FastAPI app for every test.
 """
 
 import os
-os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-runs-01")
+os.environ.setdefault("REDIS_URL", "")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,12 +20,16 @@ from app.core.limiter import limiter
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
-    """Reset the shared in-memory rate limiter before each test.
+    """Reset the rate limiter before each test.
 
     Without this, sequential tests that call /auth/register or /auth/login
     exhaust the per-IP counters (5/min, 10/min) and start returning 429s.
+    Silently skip if Redis is unavailable (e.g. CI without docker).
     """
-    limiter._storage.reset()
+    try:
+        limiter._storage.reset()
+    except Exception:
+        pass
     yield
 
 
