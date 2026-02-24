@@ -356,6 +356,12 @@ def import_event(
             detail="CSV file contains no data rows",
         )
 
+    if len(rows) > 10_000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"CSV file contains {len(rows)} rows — maximum is 10,000",
+        )
+
     # Create Event
     event = Event(name=event_name, created_by_id=admin.id)
     session.add(event)

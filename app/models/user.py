@@ -33,4 +33,5 @@ class User(SQLModel, table=True):
     )
     assigned_events: list["Event"] = Relationship(
         link_model=EventEvaluator,
+        sa_relationship_kwargs={"overlaps": "event_evaluators"},
     )

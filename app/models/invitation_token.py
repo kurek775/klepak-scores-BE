@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from sqlalchemy import Column, DateTime
 from sqlmodel import Field, SQLModel
 
 
@@ -10,7 +11,7 @@ class InvitationToken(SQLModel, table=True):
     email: str = Field(index=True)
     role: str  # "EVALUATOR" or "SUPER_ADMIN"
     token_hash: str = Field(index=True)
-    expires_at: datetime
+    expires_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
     used: bool = Field(default=False)
     invited_by: int | None = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

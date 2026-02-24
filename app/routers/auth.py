@@ -81,7 +81,7 @@ def me(user: User = Depends(get_current_user)):
 
 
 @router.get("/validate-invitation")
-@limiter.limit("10/minute")
+@limiter.limit("3/minute")
 def validate_invitation(
     request: Request,
     token: str,
@@ -98,7 +98,7 @@ def validate_invitation(
             detail="Invalid or already used invitation token",
         )
 
-    if inv.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+    if inv.expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invitation token has expired",
@@ -116,7 +116,7 @@ def accept_invitation(
 ):
     token_hash = hashlib.sha256(body.token.encode()).hexdigest()
     inv = session.exec(
-        select(InvitationToken).where(InvitationToken.token_hash == token_hash)
+        select(InvitationToken).where(InvitationToken.token_hash == token_hash).with_for_update()
     ).first()
 
     if not inv or inv.used:
@@ -125,7 +125,7 @@ def accept_invitation(
             detail="Invalid or already used invitation token",
         )
 
-    if inv.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+    if inv.expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invitation token has expired",
@@ -213,7 +213,7 @@ def reset_password(
     token_hash = hashlib.sha256(body.token.encode()).hexdigest()
 
     reset_token = session.exec(
-        select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
+        select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash).with_for_update()
     ).first()
 
     if not reset_token or reset_token.used:
@@ -222,7 +222,7 @@ def reset_password(
             detail="Invalid or already used reset token",
         )
 
-    if reset_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+    if reset_token.expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Reset token has expired",

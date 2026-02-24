@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import Session, select
 
 from app.core.dependencies import get_current_active_user, get_current_admin
+from app.core.limiter import limiter
 from app.database import get_session
 from app.models.activity import Activity
 from app.models.event import Event
@@ -12,7 +13,9 @@ router = APIRouter(tags=["activities"])
 
 
 @router.post("/activities", response_model=ActivityRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def create_activity(
+    request: Request,
     body: ActivityCreate,
     session: Session = Depends(get_session),
     _admin: User = Depends(get_current_admin),
@@ -54,7 +57,9 @@ def list_event_activities(
 
 
 @router.delete("/activities/{activity_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
 def delete_activity(
+    request: Request,
     activity_id: int,
     session: Session = Depends(get_session),
     _admin: User = Depends(get_current_admin),

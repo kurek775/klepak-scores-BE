@@ -1,11 +1,16 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://klepak:klepak_dev@localhost:5432/klepak_scores"
-    SECRET_KEY: str  # no default — raises ValidationError at startup if missing
+    SECRET_KEY: str = Field(min_length=32)
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    GEMINI_API_KEY: str = ""
+    REDIS_URL: str = "redis://localhost:6379"
+    CORS_ORIGINS: str = "http://localhost:4200"
 
     # SMTP settings (empty = dev mode, prints to console)
     SMTP_HOST: str = ""

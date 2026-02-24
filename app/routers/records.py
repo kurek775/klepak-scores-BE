@@ -2,11 +2,11 @@ import logging
 
 import google.generativeai as genai
 import json
-import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlmodel import Session, select
 
+from app.config import settings
 from app.core.dependencies import get_current_active_user
 from app.core.limiter import limiter
 from app.core.redis_client import redis_client
@@ -22,11 +22,12 @@ from app.schemas.activity import BulkRecordCreate, RecordCreate, RecordRead
 
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+genai.configure(api_key=settings.GEMINI_API_KEY)
 
 router = APIRouter(tags=["records"])
 
 _5MB = 5 * 1024 * 1024
+_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 # --- AI Helper Function ---
 def _call_gemini_ocr(image_bytes: bytes, participant_names: list[str]) -> list[dict]:
@@ -83,6 +84,12 @@ async def process_image(
     participants = session.exec(
         select(Participant).where(Participant.group_id == group_id)
     ).all()
+
+    if file.content_type not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported image type. Allowed: {', '.join(sorted(_ALLOWED_IMAGE_TYPES))}",
+        )
 
     image_bytes = await file.read()
 

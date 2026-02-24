@@ -1,5 +1,4 @@
 import logging
-import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -16,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, delete, select, text
 
+from app.config import settings as app_settings
 from app.core.limiter import limiter
 from app.core.redis_client import redis_client
 from app.database import engine
@@ -119,7 +119,7 @@ app = FastAPI(title="Klepak Scores API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",")]
+_cors_origins = [o.strip() for o in app_settings.CORS_ORIGINS.split(",")]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
