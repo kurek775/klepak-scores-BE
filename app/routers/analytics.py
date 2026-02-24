@@ -1,6 +1,8 @@
 import csv
 import io
+import logging
 from collections import defaultdict
+from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -23,8 +25,12 @@ from app.schemas.leaderboard import (
     ParticipantRank,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["analytics"])
 
+
+# ── Shared leaderboard helpers ──────────────────────────────────────────────
 
 def _assign_age_category(age: int | None, categories: list[AgeCategory], has_categories: bool) -> str:
     if not has_categories:
@@ -49,6 +55,103 @@ def _sort_key_for_record(value_raw: str, evaluation_type: EvaluationType):
         return (1, 0)  # unparseable goes last
 
 
+@dataclass
+class RankedEntry:
+    rank: int
+    participant: Participant
+    group_name: str
+    value_raw: str
+    gender: str
+    age_category_name: str
+
+
+def _load_event_data(
+    session: Session, event_id: int
+) -> tuple[
+    list[Activity],
+    list[AgeCategory],
+    bool,
+    dict[int, tuple[Participant, str]],
+    dict[int, list[Record]],
+]:
+    """Load activities, age categories, participant map, and records for an event."""
+    age_categories = session.exec(
+        select(AgeCategory).where(AgeCategory.event_id == event_id)
+    ).all()
+    has_age_categories = len(age_categories) > 0
+
+    activities = session.exec(
+        select(Activity).where(Activity.event_id == event_id)
+    ).all()
+
+    groups = session.exec(select(Group).where(Group.event_id == event_id)).all()
+    group_name_map = {g.id: g.name for g in groups}
+    participants = session.exec(
+        select(Participant).join(Group, Participant.group_id == Group.id)
+        .where(Group.event_id == event_id)
+    ).all()
+    participant_map: dict[int, tuple[Participant, str]] = {
+        p.id: (p, group_name_map[p.group_id]) for p in participants
+    }
+
+    all_records = session.exec(
+        select(Record).join(Activity, Record.activity_id == Activity.id)
+        .where(Activity.event_id == event_id)
+    ).all()
+    records_by_activity: dict[int, list[Record]] = defaultdict(list)
+    for r in all_records:
+        records_by_activity[r.activity_id].append(r)
+
+    return activities, list(age_categories), has_age_categories, participant_map, records_by_activity
+
+
+def _bucket_and_rank(
+    records: list[Record],
+    activity: Activity,
+    age_categories: list[AgeCategory],
+    has_age_categories: bool,
+    participant_map: dict[int, tuple[Participant, str]],
+) -> dict[tuple[str, str], list[RankedEntry]]:
+    """Group records into (gender, age_cat) buckets, sort, and assign ranks."""
+    buckets: dict[tuple[str, str], list[tuple[Participant, str, str]]] = {}
+    for record in records:
+        if record.participant_id not in participant_map:
+            continue
+        participant, group_name = participant_map[record.participant_id]
+        gender = participant.gender or "?"
+        age_cat_name = _assign_age_category(participant.age, age_categories, has_age_categories)
+        key = (gender, age_cat_name)
+        buckets.setdefault(key, []).append((participant, record.value_raw, group_name))
+
+    ranked: dict[tuple[str, str], list[RankedEntry]] = {}
+    for (gender, age_cat_name), entries in buckets.items():
+        sorted_entries = sorted(
+            entries,
+            key=lambda e: _sort_key_for_record(e[1], activity.evaluation_type),
+        )
+        rank = 1
+        ranked_list: list[RankedEntry] = []
+        for i, (participant, value_raw, group_name) in enumerate(sorted_entries):
+            if i > 0:
+                prev_key = _sort_key_for_record(sorted_entries[i - 1][1], activity.evaluation_type)
+                curr_key = _sort_key_for_record(value_raw, activity.evaluation_type)
+                if curr_key != prev_key:
+                    rank = i + 1
+            ranked_list.append(RankedEntry(
+                rank=rank,
+                participant=participant,
+                group_name=group_name,
+                value_raw=value_raw,
+                gender=gender,
+                age_category_name=age_cat_name,
+            ))
+        ranked[(gender, age_cat_name)] = ranked_list
+
+    return ranked
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
 @router.get("/events/{event_id}/leaderboard", response_model=LeaderboardResponse)
 def get_leaderboard(
     event_id: int,
@@ -60,97 +163,48 @@ def get_leaderboard(
         if cached:
             return LeaderboardResponse.model_validate_json(cached)
     except Exception:
-        pass
+        logger.warning("Failed to read leaderboard cache for event %s", event_id)
 
     event = session.get(Event, event_id)
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
-    age_categories = session.exec(
-        select(AgeCategory).where(AgeCategory.event_id == event_id)
-    ).all()
-    has_age_categories = len(age_categories) > 0
-
-    # Build ordering map: age_cat_name -> min_age for sorting
+    activities, age_categories, has_age_categories, participant_map, records_by_activity = (
+        _load_event_data(session, event_id)
+    )
     cat_order: dict[str, int] = {cat.name: cat.min_age for cat in age_categories}
-
-    activities = session.exec(
-        select(Activity).where(Activity.event_id == event_id)
-    ).all()
-
-    # Build participant lookup: participant_id -> (participant, group_name)
-    groups = session.exec(select(Group).where(Group.event_id == event_id)).all()
-    group_name_map = {g.id: g.name for g in groups}
-    participants = session.exec(
-        select(Participant).join(Group, Participant.group_id == Group.id)
-        .where(Group.event_id == event_id)
-    ).all()
-    participant_map: dict[int, tuple[Participant, str]] = {
-        p.id: (p, group_name_map[p.group_id]) for p in participants
-    }
-
-    # Fetch all records for this event in one query
-    all_records = session.exec(
-        select(Record).join(Activity, Record.activity_id == Activity.id)
-        .where(Activity.event_id == event_id)
-    ).all()
-    records_by_activity: dict[int, list[Record]] = defaultdict(list)
-    for r in all_records:
-        records_by_activity[r.activity_id].append(r)
 
     activity_leaderboards: list[ActivityLeaderboard] = []
 
     for activity in activities:
-        records = records_by_activity[activity.id]
+        ranked_buckets = _bucket_and_rank(
+            records_by_activity[activity.id],
+            activity,
+            age_categories,
+            has_age_categories,
+            participant_map,
+        )
 
-        # Group records into (gender, age_cat_name) buckets
-        buckets: dict[tuple[str, str], list[tuple[Participant, str, str]]] = {}
-        for record in records:
-            if record.participant_id not in participant_map:
-                continue
-            participant, _group_name = participant_map[record.participant_id]
-            gender = participant.gender or "?"
-            age_cat_name = _assign_age_category(participant.age, list(age_categories), has_age_categories)
-            key = (gender, age_cat_name)
-            if key not in buckets:
-                buckets[key] = []
-            buckets[key].append((participant, record.value_raw, _group_name))
-
-        # Sort each bucket and build CategoryRanking
         category_rankings: list[CategoryRanking] = []
-        for (gender, age_cat_name), entries in buckets.items():
-            sorted_entries = sorted(
-                entries,
-                key=lambda e: _sort_key_for_record(e[1], activity.evaluation_type),
-            )
-            participant_ranks: list[ParticipantRank] = []
-            rank = 1
-            for i, (participant, value_raw, _gn) in enumerate(sorted_entries):
-                # Ties: same sort key → same rank
-                if i > 0:
-                    prev_key = _sort_key_for_record(sorted_entries[i - 1][1], activity.evaluation_type)
-                    curr_key = _sort_key_for_record(value_raw, activity.evaluation_type)
-                    if curr_key != prev_key:
-                        rank = i + 1
-                participant_ranks.append(
-                    ParticipantRank(
-                        rank=rank,
-                        participant_id=participant.id,
-                        display_name=participant.display_name,
-                        gender=participant.gender,
-                        age=participant.age,
-                        value=value_raw,
-                    )
-                )
+        for (gender, age_cat_name), ranked_entries in ranked_buckets.items():
             category_rankings.append(
                 CategoryRanking(
                     gender=gender,
                     age_category_name=age_cat_name,
-                    participants=participant_ranks,
+                    participants=[
+                        ParticipantRank(
+                            rank=e.rank,
+                            participant_id=e.participant.id,
+                            display_name=e.participant.display_name,
+                            gender=e.participant.gender,
+                            age=e.participant.age,
+                            value=e.value_raw,
+                        )
+                        for e in ranked_entries
+                    ],
                 )
             )
 
-        # Sort categories: by (gender, age_cat min_age)
         category_rankings.sort(
             key=lambda c: (c.gender, cat_order.get(c.age_category_name, 9999))
         )
@@ -171,9 +225,9 @@ def get_leaderboard(
         activities=activity_leaderboards,
     )
     try:
-        redis_client.setex(f"leaderboard:{event_id}", 30, result.model_dump_json())
+        redis_client.setex(f"leaderboard:{event_id}", 300, result.model_dump_json())
     except Exception:
-        pass
+        logger.warning("Failed to write leaderboard cache for event %s", event_id)
     return result
 
 
@@ -190,76 +244,36 @@ def export_csv(
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
-    age_categories = session.exec(
-        select(AgeCategory).where(AgeCategory.event_id == event_id)
-    ).all()
-    has_age_categories = len(age_categories) > 0
-
-    activities = session.exec(
-        select(Activity).where(Activity.event_id == event_id)
-    ).all()
-
-    # Build participant lookup: participant_id -> (participant, group_name)
-    groups = session.exec(select(Group).where(Group.event_id == event_id)).all()
-    group_name_map = {g.id: g.name for g in groups}
-    participants = session.exec(
-        select(Participant).join(Group, Participant.group_id == Group.id)
-        .where(Group.event_id == event_id)
-    ).all()
-    participant_map: dict[int, tuple[Participant, str]] = {
-        p.id: (p, group_name_map[p.group_id]) for p in participants
-    }
-
-    # Fetch all records for this event in one query
-    all_records = session.exec(
-        select(Record).join(Activity, Record.activity_id == Activity.id)
-        .where(Activity.event_id == event_id)
-    ).all()
-    records_by_activity: dict[int, list[Record]] = defaultdict(list)
-    for r in all_records:
-        records_by_activity[r.activity_id].append(r)
+    activities, age_categories, has_age_categories, participant_map, records_by_activity = (
+        _load_event_data(session, event_id)
+    )
 
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["rank", "podium", "activity", "gender", "age_category", "participant_name", "group_name", "age", "score"])
 
     for activity in activities:
-        records = records_by_activity[activity.id]
+        ranked_buckets = _bucket_and_rank(
+            records_by_activity[activity.id],
+            activity,
+            age_categories,
+            has_age_categories,
+            participant_map,
+        )
 
-        # Bucket by (gender, age_cat_name)
-        buckets: dict[tuple[str, str], list[tuple[Participant, str, str]]] = {}
-        for record in records:
-            if record.participant_id not in participant_map:
-                continue
-            participant, group_name = participant_map[record.participant_id]
-            gender = participant.gender or "?"
-            age_cat_name = _assign_age_category(participant.age, list(age_categories), has_age_categories)
-            key = (gender, age_cat_name)
-            buckets.setdefault(key, []).append((participant, record.value_raw, group_name))
-
-        for (gender, age_cat_name), entries in sorted(buckets.items()):
-            sorted_entries = sorted(
-                entries,
-                key=lambda e: _sort_key_for_record(e[1], activity.evaluation_type),
-            )
-            rank = 1
-            for i, (participant, value_raw, group_name) in enumerate(sorted_entries):
-                if i > 0:
-                    prev_key = _sort_key_for_record(sorted_entries[i - 1][1], activity.evaluation_type)
-                    curr_key = _sort_key_for_record(value_raw, activity.evaluation_type)
-                    if curr_key != prev_key:
-                        rank = i + 1
-                podium = {1: "Gold", 2: "Silver", 3: "Bronze"}.get(rank, "")
+        for (_gender, _age_cat), ranked_entries in sorted(ranked_buckets.items()):
+            for e in ranked_entries:
+                podium = {1: "Gold", 2: "Silver", 3: "Bronze"}.get(e.rank, "")
                 writer.writerow([
-                    rank,
+                    e.rank,
                     podium,
                     activity.name,
-                    gender,
-                    age_cat_name,
-                    participant.display_name,
-                    group_name,
-                    participant.age if participant.age is not None else "",
-                    value_raw,
+                    e.gender,
+                    e.age_category_name,
+                    e.participant.display_name,
+                    e.group_name,
+                    e.participant.age if e.participant.age is not None else "",
+                    e.value_raw,
                 ])
 
     output.seek(0)

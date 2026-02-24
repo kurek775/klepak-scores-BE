@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 # Import all models so SQLModel metadata is fully populated
-from app.models import Activity, AgeCategory, AuditLog, DiplomaTemplate, Event, Group, GroupEvaluator, Participant, Record, User  # noqa: F401
+from app.models import Activity, AgeCategory, AuditLog, DiplomaTemplate, Event, EventEvaluator, Group, GroupEvaluator, InvitationToken, Participant, PasswordResetToken, Record, User  # noqa: F401
 from sqlmodel import SQLModel
 
 config = context.config

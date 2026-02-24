@@ -1,5 +1,5 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
@@ -21,8 +21,8 @@ class Activity(SQLModel, table=True):
     name: str
     description: str | None = Field(default=None)
     evaluation_type: EvaluationType
-    event_id: int = Field(foreign_key="event.id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    event_id: int = Field(foreign_key="event.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     event: "Event" = Relationship(back_populates="activities")
     records: list["Record"] = Relationship(

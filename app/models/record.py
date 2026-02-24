@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import UniqueConstraint
@@ -17,10 +17,10 @@ class Record(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     value_raw: str
-    participant_id: int = Field(foreign_key="participant.id")
-    activity_id: int = Field(foreign_key="activity.id")
-    evaluator_id: int = Field(foreign_key="user.id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    participant_id: int = Field(foreign_key="participant.id", index=True)
+    activity_id: int = Field(foreign_key="activity.id", index=True)
+    evaluator_id: int | None = Field(default=None, foreign_key="user.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     participant: "Participant" = Relationship()
     activity: "Activity" = Relationship(back_populates="records")

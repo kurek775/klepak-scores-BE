@@ -39,9 +39,18 @@ def get_current_active_user(user: User = Depends(get_current_user)) -> User:
 
 
 def get_current_admin(user: User = Depends(get_current_active_user)) -> User:
-    if user.role != UserRole.ADMIN:
+    if user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
+        )
+    return user
+
+
+def get_current_super_admin(user: User = Depends(get_current_active_user)) -> User:
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin access required",
         )
     return user

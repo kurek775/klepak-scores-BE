@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlmodel import Field, SQLModel
 
@@ -12,4 +12,4 @@ class AuditLog(SQLModel, table=True):
     resource_type: str | None = None
     resource_id: int | None = None
     detail: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)

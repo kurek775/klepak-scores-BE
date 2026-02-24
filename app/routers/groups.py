@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
 from app.core.audit import log_action
 from app.core.dependencies import get_current_active_user, get_current_admin
 from app.database import get_session
+from app.models.event_evaluator import EventEvaluator
 from app.models.group import Group
 from app.models.group_evaluator import GroupEvaluator
 from app.models.user import User
@@ -26,7 +28,12 @@ def my_groups(
     if not group_ids:
         return []
 
-    groups = session.exec(select(Group).where(Group.id.in_(group_ids))).all()
+    groups = session.exec(
+        select(Group).where(Group.id.in_(group_ids)).options(
+            selectinload(Group.event),
+            selectinload(Group.participants),
+        )
+    ).all()
     return [
         MyGroupRead(
             id=g.id,
@@ -61,6 +68,15 @@ def assign_evaluator(
             detail="User not found",
         )
 
+    # Check evaluator is in the event pool first
+    event_id = group.event_id
+    event_link = session.get(EventEvaluator, (event_id, body.user_id))
+    if not event_link:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Evaluator must be assigned to the event first",
+        )
+
     existing = session.get(GroupEvaluator, (group_id, body.user_id))
     if existing:
         raise HTTPException(
@@ -69,11 +85,12 @@ def assign_evaluator(
         )
 
     # Check if evaluator is already assigned to another group in the same event
-    event_id = group.event_id
+    # Use FOR UPDATE to prevent race conditions on concurrent assignments
     conflict = session.exec(
         select(GroupEvaluator)
         .join(Group, GroupEvaluator.group_id == Group.id)
         .where(GroupEvaluator.user_id == body.user_id, Group.event_id == event_id)
+        .with_for_update()
     ).first()
     if conflict:
         conflict_group = session.get(Group, conflict.group_id)

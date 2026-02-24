@@ -13,3 +13,10 @@ class AuditLogRead(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PaginatedAuditLogs(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    items: list[AuditLogRead]

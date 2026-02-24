@@ -1,13 +1,13 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.activity import EvaluationType
 
 
 class ActivityCreate(BaseModel):
-    name: str
-    description: str | None = None
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=5000)
     evaluation_type: EvaluationType
     event_id: int
 
@@ -39,7 +39,7 @@ class RecordRead(BaseModel):
     value_raw: str | int
     participant_id: int
     activity_id: int
-    evaluator_id: int
+    evaluator_id: int | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -19,6 +19,11 @@ services:
     volumes:
       - redisdata:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   migrate:
     build: .
@@ -37,13 +42,28 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       REDIS_URL: redis://redis:6379
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
+      FRONTEND_URL: ${FRONTEND_URL:-https://localhost}
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   lb:
     image: nginx:1.27-alpine
@@ -52,7 +72,8 @@ services:
     volumes:
       - ./nginx-lb.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

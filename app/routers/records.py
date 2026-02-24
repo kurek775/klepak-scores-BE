@@ -1,3 +1,5 @@
+import logging
+
 import google.generativeai as genai
 import json
 import os
@@ -17,6 +19,8 @@ from app.models.record import Record
 from app.models.user import User, UserRole
 from app.schemas.activity import BulkRecordCreate, RecordCreate, RecordRead
 
+
+logger = logging.getLogger(__name__)
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -89,10 +93,11 @@ async def process_image(
 
     try:
         ocr_results = _call_gemini_ocr(image_bytes, participant_names)
-    except Exception as exc:
+    except Exception:
+        logger.exception("Gemini OCR service error")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Gemini OCR service error: {exc}",
+            detail="AI score extraction failed. Please try again or enter scores manually.",
         )
 
     matched = []
@@ -179,7 +184,7 @@ def submit_record(
     try:
         redis_client.delete(f"leaderboard:{activity.event_id}")
     except Exception:
-        pass
+        logger.warning("Failed to invalidate leaderboard cache for event %s", activity.event_id)
 
     return RecordRead.model_validate(record)
 
@@ -196,9 +201,39 @@ def submit_bulk_records(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Activity not found",
         )
+    # Batch-load participants and evaluator access to avoid N+1
+    participant_ids = [e.participant_id for e in body.records]
+    participants = session.exec(
+        select(Participant).where(Participant.id.in_(participant_ids))
+    ).all()
+    participant_map = {p.id: p for p in participants}
+
+    for entry in body.records:
+        if entry.participant_id not in participant_map:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Participant {entry.participant_id} not found",
+            )
+
+    group_ids = {p.group_id for p in participants}
+    evaluator_links = session.exec(
+        select(GroupEvaluator).where(
+            GroupEvaluator.group_id.in_(group_ids),
+            GroupEvaluator.user_id == user.id,
+        )
+    ).all()
+    allowed_groups = {link.group_id for link in evaluator_links}
+
+    for entry in body.records:
+        p = participant_map[entry.participant_id]
+        if p.group_id not in allowed_groups:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not assigned to this participant's group",
+            )
+
     results: list[Record] = []
     for entry in body.records:
-        _check_evaluator_access(session, user, entry.participant_id)
         record = _upsert_record(session, user, body.activity_id, entry.participant_id, entry.value_raw)
         results.append(record)
     session.commit()
@@ -209,7 +244,7 @@ def submit_bulk_records(
     try:
         redis_client.delete(f"leaderboard:{activity.event_id}")
     except Exception:
-        pass
+        logger.warning("Failed to invalidate leaderboard cache for event %s", activity.event_id)
 
     return [RecordRead.model_validate(r) for r in results]
 

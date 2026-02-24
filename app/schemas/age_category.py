@@ -1,10 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AgeCategoryCreate(BaseModel):
-    name: str
-    min_age: int
-    max_age: int
+    name: str = Field(min_length=1, max_length=255)
+    min_age: int = Field(ge=0, le=999)
+    max_age: int = Field(ge=0, le=999)
 
 
 class AgeCategoryRead(BaseModel):
