@@ -55,33 +55,44 @@ def client_fixture(engine):
 
 # ── Auth helpers ────────────────────────────────────────────────────────────
 
-def register_and_login(client: TestClient, email: str, password: str, full_name: str) -> str:
-    """Register a user and return the JWT access token."""
+def register_and_login(client: TestClient, email: str, password: str, full_name: str, engine) -> str:
+    """Register a user, activate via DB, and return the JWT access token."""
+    from app.models.user import User
+    from sqlmodel import select
+
     client.post("/auth/register", json={"email": email, "password": password, "full_name": full_name})
+    # Registration creates inactive users; activate via DB for testing
+    with Session(engine) as session:
+        user = session.exec(select(User).where(User.email == email)).first()
+        if user:
+            user.is_active = True
+            session.add(user)
+            session.commit()
     resp = client.post("/auth/login", json={"email": email, "password": password})
     return resp.json()["access_token"]
 
 
 @pytest.fixture(name="admin_token")
-def admin_token_fixture(client):
-    """First registered user automatically becomes admin."""
-    return register_and_login(client, "admin@test.com", "Password1!", "Admin User")
+def admin_token_fixture(client, engine):
+    """Register and activate an admin user."""
+    return register_and_login(client, "admin@test.com", "Password1!", "Admin User", engine)
 
 
 @pytest.fixture(name="evaluator_token")
 def evaluator_token_fixture(client, admin_token, engine):
-    """Register a second user (evaluator), activate them via DB, then log in."""
-    from app.models.user import User
+    """Register a second user, set as evaluator, activate via DB, then log in."""
+    from app.models.user import User, UserRole
     from sqlmodel import select
 
     client.post(
         "/auth/register",
         json={"email": "eval@test.com", "password": "Password1!", "full_name": "Eval User"},
     )
-    # Activate via direct DB manipulation (admin would normally do this via /admin)
+    # Set role to EVALUATOR and activate via direct DB manipulation
     with Session(engine) as session:
         user = session.exec(select(User).where(User.email == "eval@test.com")).first()
         if user:
+            user.role = UserRole.EVALUATOR
             user.is_active = True
             session.add(user)
             session.commit()

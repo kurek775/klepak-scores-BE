@@ -2,11 +2,12 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session, select
 
 from tests.conftest import auth_headers
 
 
-def test_register_first_user_becomes_admin(client: TestClient):
+def test_register_creates_inactive_admin(client: TestClient):
     resp = client.post(
         "/auth/register",
         json={"email": "first@test.com", "password": "Password1!", "full_name": "First User"},
@@ -14,15 +15,14 @@ def test_register_first_user_becomes_admin(client: TestClient):
     assert resp.status_code == 201
     data = resp.json()
     assert data["role"] == "ADMIN"
-    assert data["is_active"] is True
+    assert data["is_active"] is False
 
 
-def test_register_second_user_becomes_evaluator(client: TestClient):
+def test_register_second_user_also_inactive(client: TestClient):
     client.post("/auth/register", json={"email": "a@test.com", "password": "Password1!", "full_name": "A"})
     resp = client.post("/auth/register", json={"email": "b@test.com", "password": "Password1!", "full_name": "B"})
     assert resp.status_code == 201
     data = resp.json()
-    assert data["role"] == "EVALUATOR"
     assert data["is_active"] is False
 
 
@@ -42,8 +42,23 @@ def test_register_weak_password_422(client: TestClient):
     assert any("8 characters" in str(e) for e in body["detail"])
 
 
-def test_login_success(client: TestClient):
+def test_login_inactive_user_403(client: TestClient):
+    """Registered (inactive) users cannot log in until activated."""
     client.post("/auth/register", json={"email": "user@test.com", "password": "Password1!", "full_name": "User"})
+    resp = client.post("/auth/login", json={"email": "user@test.com", "password": "Password1!"})
+    assert resp.status_code == 403
+
+
+def test_login_active_user_success(client: TestClient, engine):
+    """Activated users can log in and receive a token."""
+    from app.models.user import User
+
+    client.post("/auth/register", json={"email": "user@test.com", "password": "Password1!", "full_name": "User"})
+    with Session(engine) as session:
+        user = session.exec(select(User).where(User.email == "user@test.com")).first()
+        user.is_active = True
+        session.add(user)
+        session.commit()
     resp = client.post("/auth/login", json={"email": "user@test.com", "password": "Password1!"})
     assert resp.status_code == 200
     assert "access_token" in resp.json()
