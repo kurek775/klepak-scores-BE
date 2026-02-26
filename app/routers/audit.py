@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session, func, select
 
 from app.core.dependencies import get_current_active_user
+from app.core.permissions import require_admin
 from app.database import get_session
 from app.models.audit_log import AuditLog
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.audit import AuditLogRead, PaginatedAuditLogs
 
 router = APIRouter(tags=["audit"])
@@ -17,8 +18,7 @@ def get_audit_logs(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_active_user),
 ):
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    require_admin(current_user)
 
     total = session.exec(select(func.count(AuditLog.id))).one()
     logs = session.exec(

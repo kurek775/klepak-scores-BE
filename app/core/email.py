@@ -1,3 +1,4 @@
+import html
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -42,11 +43,12 @@ def send_email(to: str, subject: str, html_body: str) -> None:
 def send_password_reset_email(to: str, full_name: str, reset_token: str) -> None:
     """Send a password reset email with a link containing the token."""
     reset_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
-    html = f"""\
+    safe_name = html.escape(full_name)
+    html_body = f"""\
 <html>
 <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
   <h2>Password Reset</h2>
-  <p>Hi {full_name},</p>
+  <p>Hi {safe_name},</p>
   <p>We received a request to reset your password. Click the link below to set a new password:</p>
   <p style="margin: 24px 0;">
     <a href="{reset_url}"
@@ -60,13 +62,15 @@ def send_password_reset_email(to: str, full_name: str, reset_token: str) -> None
   <p style="color: #6b7280; font-size: 12px;">Klepak Scores</p>
 </body>
 </html>"""
-    send_email(to, "Password Reset - Klepak Scores", html)
+    send_email(to, "Password Reset - Klepak Scores", html_body)
 
 
 def send_invitation_email(to: str, role: str, raw_token: str) -> None:
     """Send an evaluator invitation email with a setup link."""
     setup_url = f"{settings.FRONTEND_URL}/setup-account?token={raw_token}"
-    role_label = "Evaluator" if role == "EVALUATOR" else role.replace("_", " ").title()
+    role_label = html.escape(
+        "Evaluator" if role == "EVALUATOR" else role.replace("_", " ").title()
+    )
     html = f"""\
 <html>
 <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">

@@ -82,6 +82,7 @@ class AcceptInvitationRequest(BaseModel):
 
 class CreateInvitationRequest(BaseModel):
     email: EmailStr
+    role: UserRole = UserRole.EVALUATOR
 
 
 class InvitationRead(BaseModel):

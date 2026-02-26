@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.group_evaluator import GroupEvaluator
 from app.models.event_evaluator import EventEvaluator
+from app.models.group_evaluator import GroupEvaluator
 
 if TYPE_CHECKING:
     from app.models.event import Event

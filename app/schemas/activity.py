@@ -12,6 +12,11 @@ class ActivityCreate(BaseModel):
     event_id: int
 
 
+class ActivityUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=5000)
+
+
 class ActivityRead(BaseModel):
     id: int
     name: str

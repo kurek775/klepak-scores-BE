@@ -19,7 +19,7 @@ from app.config import settings as app_settings
 from app.core.limiter import limiter
 from app.core.redis_client import redis_client
 from app.database import engine
-from app.routers import activities, admin, analytics, audit, auth, diplomas, events, groups, records
+from app.routers import activities, admin, analytics, audit, auth, diplomas, events, groups, participants, records
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +153,7 @@ app.include_router(admin.router)
 app.include_router(events.router)
 app.include_router(groups.router)
 app.include_router(activities.router)
+app.include_router(participants.router)
 app.include_router(records.router)
 app.include_router(analytics.router)
 app.include_router(audit.router)

@@ -40,6 +40,6 @@ class Event(SQLModel, table=True):
         back_populates="event",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
-    event_evaluators: list["User"] = Relationship(
-        link_model=EventEvaluator,
+    event_evaluators: list["EventEvaluator"] = Relationship(
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )

@@ -256,6 +256,37 @@ def submit_bulk_records(
     return [RecordRead.model_validate(r) for r in results]
 
 
+@router.delete("/records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_record(
+    record_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_active_user),
+):
+    record = session.get(Record, record_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Record not found")
+
+    # Admin/SuperAdmin can delete any record; others can only delete their own
+    if user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        if record.evaluator_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only delete your own records",
+            )
+
+    activity = session.get(Activity, record.activity_id)
+    event_id = activity.event_id if activity else None
+
+    session.delete(record)
+    session.commit()
+
+    if event_id:
+        try:
+            redis_client.delete(f"leaderboard:{event_id}")
+        except Exception:
+            logger.warning("Failed to invalidate leaderboard cache for event %s", event_id)
+
+
 @router.get(
     "/activities/{activity_id}/records",
     response_model=list[RecordRead],
@@ -272,7 +303,7 @@ def get_activity_records(
             detail="Activity not found",
         )
 
-    if user.role != UserRole.ADMIN:
+    if user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         # Check that the user is an evaluator for at least one group in this event
         event_group_ids = session.exec(
             select(Group.id).where(Group.event_id == activity.event_id)

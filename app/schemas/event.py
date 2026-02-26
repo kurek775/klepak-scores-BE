@@ -49,14 +49,6 @@ class EventRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class EventEvaluatorRead(BaseModel):
-    id: int
-    email: str
-    full_name: str
-
-    model_config = {"from_attributes": True}
-
-
 class EventDetailRead(BaseModel):
     id: int
     name: str
@@ -65,7 +57,7 @@ class EventDetailRead(BaseModel):
     created_at: datetime
     groups: list[GroupDetailRead] = []
     activities: list[ActivityRead] = []
-    event_evaluators: list[EventEvaluatorRead] = []
+    event_evaluators: list[EvaluatorRead] = []
 
     model_config = {"from_attributes": True}
 
@@ -75,11 +67,6 @@ class ImportSummary(BaseModel):
     event_name: str
     groups_created: int
     participants_created: int
-
-
-class MoveEvaluatorsRequest(BaseModel):
-    source_event_id: int
-    user_ids: list[int]
 
 
 class CsvPreviewResponse(BaseModel):
@@ -99,6 +86,32 @@ class GroupInput(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     identifier: str = Field(default="", max_length=255)
     participants: list[ParticipantCreate] = []
+
+
+class EventUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    status: EventStatus | None = None
+
+
+class ParticipantUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    external_id: str | None = Field(default=None, max_length=255)
+    gender: str | None = Field(default=None, max_length=50)
+    age: int | None = Field(default=None, ge=0, le=200)
+
+
+class ParticipantMoveRequest(BaseModel):
+    group_id: int
+
+
+class GroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    identifier: str = Field(default="", max_length=255)
+
+
+class GroupUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    identifier: str | None = Field(default=None, max_length=255)
 
 
 class ManualEventCreate(BaseModel):

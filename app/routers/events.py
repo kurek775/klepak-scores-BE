@@ -23,12 +23,12 @@ from app.models.diploma_template import DiplomaTemplate, DiplomaOrientation
 from app.schemas.event import (
     CsvPreviewResponse,
     EventDetailRead,
-    EventEvaluatorRead,
     EventRead,
+    EventUpdate,
+    GroupCreate,
     GroupDetailRead,
     ImportSummary,
     ManualEventCreate,
-    MoveEvaluatorsRequest,
     ParticipantRead,
 )
 from app.schemas.group import EvaluatorRead
@@ -161,7 +161,13 @@ def get_event(
             detail="Event not found",
         )
 
-    is_admin = _user.role == UserRole.ADMIN
+    is_admin = _user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
+
+    # Resolve event evaluator user info
+    pool_user_ids = [ee.user_id for ee in event.event_evaluators]
+    pool_users = []
+    if pool_user_ids:
+        pool_users = session.exec(select(User).where(User.id.in_(pool_user_ids))).all()
 
     return EventDetailRead(
         id=event.id,
@@ -188,9 +194,82 @@ def get_event(
             ActivityRead.model_validate(a) for a in event.activities
         ],
         event_evaluators=[
-            EventEvaluatorRead.model_validate(u)
-            for u in event.event_evaluators
-        ] if is_admin else [],
+            EvaluatorRead.model_validate(u) for u in pool_users
+        ],
+    )
+
+
+@router.patch("/{event_id}", response_model=EventRead)
+def update_event(
+    event_id: int,
+    body: EventUpdate,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    event = session.get(Event, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    if body.name is not None:
+        event.name = body.name
+    if body.status is not None:
+        event.status = body.status
+
+    session.add(event)
+    log_action(
+        session, _admin.id, "UPDATE_EVENT",
+        resource_type="event", resource_id=event_id,
+        detail=f"name={event.name}, status={event.status.value}",
+    )
+    session.commit()
+    session.refresh(event)
+
+    group_count = session.exec(
+        select(func.count(Group.id)).where(Group.event_id == event_id)
+    ).one()
+    part_count = session.exec(
+        select(func.count(Participant.id))
+        .join(Group, Group.id == Participant.group_id)
+        .where(Group.event_id == event_id)
+    ).one()
+
+    return EventRead(
+        id=event.id,
+        name=event.name,
+        status=event.status,
+        created_by_id=event.created_by_id,
+        created_at=event.created_at,
+        group_count=group_count,
+        participant_count=part_count,
+    )
+
+
+@router.post("/{event_id}/groups", response_model=GroupDetailRead, status_code=status.HTTP_201_CREATED)
+def create_group(
+    event_id: int,
+    body: GroupCreate,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    event = session.get(Event, event_id)
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+    group = Group(name=body.name, identifier=body.identifier, event_id=event_id)
+    session.add(group)
+    session.commit()
+    session.refresh(group)
+    return GroupDetailRead(
+        id=group.id,
+        name=group.name,
+        identifier=group.identifier,
+        participants=[],
+        evaluators=[],
     )
 
 
@@ -432,6 +511,97 @@ def delete_event(
     session.commit()
 
 
+# ── Event evaluator pool endpoints ─────────────────────────────────────────────
+
+@router.get("/{event_id}/evaluators", response_model=list[EvaluatorRead])
+def list_event_evaluators(
+    event_id: int,
+    session: Session = Depends(get_session),
+    _user: User = Depends(get_current_active_user),
+):
+    event = session.get(Event, event_id)
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    ee_rows = session.exec(
+        select(EventEvaluator).where(EventEvaluator.event_id == event_id)
+    ).all()
+    user_ids = [ee.user_id for ee in ee_rows]
+    if not user_ids:
+        return []
+    users = session.exec(select(User).where(User.id.in_(user_ids))).all()
+    return [EvaluatorRead.model_validate(u) for u in users]
+
+
+@router.post("/{event_id}/evaluators", status_code=status.HTTP_201_CREATED)
+def add_event_evaluator(
+    event_id: int,
+    body: dict,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    event = session.get(Event, event_id)
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id is required")
+
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not active")
+    if user.role != UserRole.EVALUATOR:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not an evaluator")
+
+    existing = session.get(EventEvaluator, (event_id, user_id))
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Evaluator already assigned to this event")
+
+    link = EventEvaluator(event_id=event_id, user_id=user_id)
+    session.add(link)
+    session.commit()
+    return {"detail": "Evaluator added to event"}
+
+
+@router.delete(
+    "/{event_id}/evaluators/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_event_evaluator(
+    event_id: int,
+    user_id: int,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    link = session.get(EventEvaluator, (event_id, user_id))
+    if not link:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found")
+
+    # Cascade: also remove group assignments for this user in this event
+    group_ids = session.exec(
+        select(Group.id).where(Group.event_id == event_id)
+    ).all()
+    if group_ids:
+        group_links = session.exec(
+            select(GroupEvaluator).where(
+                GroupEvaluator.user_id == user_id,
+                GroupEvaluator.group_id.in_(group_ids),
+            )
+        ).all()
+        for gl in group_links:
+            session.delete(gl)
+
+    log_action(
+        session, _admin.id, "DELETE_EVENT_EVALUATOR",
+        resource_type="event", resource_id=event_id,
+        detail=f"user_id={user_id}",
+    )
+    session.delete(link)
+    session.commit()
+
+
 # ── Age-category endpoints ────────────────────────────────────────────────────
 
 @router.get("/{event_id}/age-categories", response_model=list[AgeCategoryRead])
@@ -485,116 +655,3 @@ def delete_age_category(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Age category not found")
     session.delete(cat)
     session.commit()
-
-
-# ── Event evaluator pool endpoints ─────────────────────────────────────────────
-
-@router.get("/{event_id}/evaluators", response_model=list[EventEvaluatorRead])
-def list_event_evaluators(
-    event_id: int,
-    session: Session = Depends(get_session),
-    _admin: User = Depends(get_current_admin),
-):
-    event = session.get(Event, event_id)
-    if not event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
-    return [EventEvaluatorRead.model_validate(u) for u in event.event_evaluators]
-
-
-@router.post("/{event_id}/evaluators", status_code=status.HTTP_201_CREATED)
-def assign_event_evaluator(
-    event_id: int,
-    body: dict,
-    session: Session = Depends(get_session),
-    _admin: User = Depends(get_current_admin),
-):
-    user_id = body.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id is required")
-
-    event = session.get(Event, event_id)
-    if not event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
-
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    existing = session.get(EventEvaluator, (event_id, user_id))
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Evaluator already in event pool")
-
-    link = EventEvaluator(event_id=event_id, user_id=user_id)
-    session.add(link)
-    log_action(
-        session, _admin.id, "ADD_EVENT_EVALUATOR",
-        resource_type="event", resource_id=event_id,
-        detail=f"user_id={user_id}",
-    )
-    session.commit()
-    return {"detail": "Evaluator added to event pool"}
-
-
-@router.delete("/{event_id}/evaluators/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_event_evaluator(
-    event_id: int,
-    user_id: int,
-    session: Session = Depends(get_session),
-    _admin: User = Depends(get_current_admin),
-):
-    link = session.get(EventEvaluator, (event_id, user_id))
-    if not link:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluator not in event pool")
-
-    # Cascade: also remove from any groups in this event
-    group_links = session.exec(
-        select(GroupEvaluator)
-        .join(Group, GroupEvaluator.group_id == Group.id)
-        .where(GroupEvaluator.user_id == user_id, Group.event_id == event_id)
-    ).all()
-    for gl in group_links:
-        session.delete(gl)
-
-    log_action(
-        session, _admin.id, "REMOVE_EVENT_EVALUATOR",
-        resource_type="event", resource_id=event_id,
-        detail=f"user_id={user_id}, cascade_groups={len(group_links)}",
-    )
-    session.delete(link)
-    session.commit()
-
-
-@router.post("/{event_id}/evaluators/move", status_code=status.HTTP_201_CREATED)
-def move_evaluators(
-    event_id: int,
-    body: MoveEvaluatorsRequest,
-    session: Session = Depends(get_session),
-    _admin: User = Depends(get_current_admin),
-):
-    target_event = session.get(Event, event_id)
-    if not target_event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target event not found")
-
-    source_event = session.get(Event, body.source_event_id)
-    if not source_event:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source event not found")
-
-    added = 0
-    for uid in body.user_ids:
-        # Verify they're in source event
-        source_link = session.get(EventEvaluator, (body.source_event_id, uid))
-        if not source_link:
-            continue
-        # Skip if already in target
-        if session.get(EventEvaluator, (event_id, uid)):
-            continue
-        session.add(EventEvaluator(event_id=event_id, user_id=uid))
-        added += 1
-
-    log_action(
-        session, _admin.id, "MOVE_EVALUATORS",
-        resource_type="event", resource_id=event_id,
-        detail=f"from event {body.source_event_id}, added={added}",
-    )
-    session.commit()
-    return {"detail": f"{added} evaluators added to event pool"}

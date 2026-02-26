@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app.core.audit import log_action
 from app.core.dependencies import get_current_active_user, get_current_admin
@@ -8,7 +8,9 @@ from app.database import get_session
 from app.models.event_evaluator import EventEvaluator
 from app.models.group import Group
 from app.models.group_evaluator import GroupEvaluator
+from app.models.participant import Participant
 from app.models.user import User
+from app.schemas.event import GroupUpdate
 from app.schemas.group import AssignEvaluatorRequest, EvaluatorRead, MyGroupRead
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -47,6 +49,61 @@ def my_groups(
     ]
 
 
+@router.patch("/{group_id}", response_model=MyGroupRead)
+def update_group(
+    group_id: int,
+    body: GroupUpdate,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    group = session.exec(
+        select(Group).where(Group.id == group_id).options(
+            selectinload(Group.event),
+            selectinload(Group.participants),
+        )
+    ).first()
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+    if body.name is not None:
+        group.name = body.name
+    if body.identifier is not None:
+        group.identifier = body.identifier
+    session.add(group)
+    session.commit()
+    session.refresh(group)
+    return MyGroupRead(
+        id=group.id,
+        name=group.name,
+        identifier=group.identifier,
+        event_id=group.event_id,
+        event_name=group.event.name,
+        participant_count=len(group.participants),
+    )
+
+
+@router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_group(
+    group_id: int,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    group = session.get(Group, group_id)
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+    participant_count = session.exec(
+        select(func.count(Participant.id)).where(Participant.group_id == group_id)
+    ).one()
+    if participant_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete a group that still has participants",
+        )
+    session.delete(group)
+    session.commit()
+
+
 @router.post("/{group_id}/evaluators", status_code=status.HTTP_201_CREATED)
 def assign_evaluator(
     group_id: int,
@@ -68,13 +125,20 @@ def assign_evaluator(
             detail="User not found",
         )
 
-    # Check evaluator is in the event pool first
-    event_id = group.event_id
-    event_link = session.get(EventEvaluator, (event_id, body.user_id))
-    if not event_link:
+    if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Evaluator must be assigned to the event first",
+            detail="User is not active",
+        )
+
+    event_id = group.event_id
+
+    # Evaluator must be in the event pool first
+    pool_check = session.get(EventEvaluator, (event_id, body.user_id))
+    if not pool_check:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Evaluator must be assigned to this event first",
         )
 
     existing = session.get(GroupEvaluator, (group_id, body.user_id))

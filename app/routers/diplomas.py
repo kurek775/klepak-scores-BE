@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from app.core.dependencies import get_current_active_user
+from app.core.permissions import require_admin
 from app.database import get_session
 from app.models.diploma_template import DiplomaTemplate
 from app.models.event import Event
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.diploma import DiplomaTemplateCreate, DiplomaTemplateRead, DiplomaTemplateUpdate
 
 router = APIRouter(tags=["diplomas"])
@@ -64,8 +65,7 @@ def create_diploma_template(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    require_admin(user)
     _get_event_or_404(event_id, session)
 
     template = DiplomaTemplate(
@@ -102,8 +102,7 @@ def update_diploma_template(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    require_admin(user)
     _get_event_or_404(event_id, session)
     template = _get_template_or_404(event_id, template_id, session)
 
@@ -132,8 +131,7 @@ def delete_diploma_template(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    require_admin(user)
     _get_event_or_404(event_id, session)
     template = _get_template_or_404(event_id, template_id, session)
     session.delete(template)

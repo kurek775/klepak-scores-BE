@@ -7,7 +7,7 @@ from app.database import get_session
 from app.models.activity import Activity
 from app.models.event import Event
 from app.models.user import User
-from app.schemas.activity import ActivityCreate, ActivityRead
+from app.schemas.activity import ActivityCreate, ActivityRead, ActivityUpdate
 
 router = APIRouter(tags=["activities"])
 
@@ -54,6 +54,29 @@ def list_event_activities(
         select(Activity).where(Activity.event_id == event_id)
     ).all()
     return [ActivityRead.model_validate(a) for a in activities]
+
+
+@router.patch("/activities/{activity_id}", response_model=ActivityRead)
+def update_activity(
+    activity_id: int,
+    body: ActivityUpdate,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    activity = session.get(Activity, activity_id)
+    if not activity:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Activity not found",
+        )
+    if body.name is not None:
+        activity.name = body.name
+    if body.description is not None:
+        activity.description = body.description
+    session.add(activity)
+    session.commit()
+    session.refresh(activity)
+    return ActivityRead.model_validate(activity)
 
 
 @router.delete("/activities/{activity_id}", status_code=status.HTTP_204_NO_CONTENT)

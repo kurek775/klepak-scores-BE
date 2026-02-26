@@ -8,6 +8,7 @@ class ParticipantRank(BaseModel):
     gender: str | None
     age: int | None
     value: str
+    group_name: str | None = None
 
 
 class CategoryRanking(BaseModel):

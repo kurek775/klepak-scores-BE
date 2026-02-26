@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.core.redis_client import redis_client
 from app.core.dependencies import get_current_active_user
+from app.core.permissions import require_admin
 from app.database import get_session
 from app.models.activity import Activity, EvaluationType
 from app.models.age_category import AgeCategory
@@ -17,7 +18,7 @@ from app.models.event import Event
 from app.models.group import Group
 from app.models.participant import Participant
 from app.models.record import Record
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.leaderboard import (
     ActivityLeaderboard,
     CategoryRanking,
@@ -199,6 +200,7 @@ def get_leaderboard(
                             gender=e.participant.gender,
                             age=e.participant.age,
                             value=e.value_raw,
+                            group_name=e.group_name,
                         )
                         for e in ranked_entries
                     ],
@@ -237,8 +239,7 @@ def export_csv(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_active_user),
 ):
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    require_admin(user)
 
     event = session.get(Event, event_id)
     if not event:

@@ -27,7 +27,7 @@ def _setup(client: TestClient, admin_token: str, eval_token: str):
     group2 = next(g for g in event["groups"] if g["name"] == "Group2")
 
     eval_id = client.get("/auth/me", headers=auth_headers(eval_token)).json()["id"]
-    # Add evaluator to event pool first (Phase 8 requirement)
+    # Add evaluator to event pool first
     client.post(
         f"/events/{event_id}/evaluators",
         headers=auth_headers(admin_token),

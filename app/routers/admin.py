@@ -23,12 +23,12 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-# ── User management (super admin only) ──────────────────────────────
+# ── User management ─────────────────────────────────────────────────
 
 @router.get("/users", response_model=list[UserRead])
 def list_users(
     session: Session = Depends(get_session),
-    admin: User = Depends(get_current_super_admin),
+    admin: User = Depends(get_current_admin),
 ):
     users = session.exec(select(User)).all()
     return users
@@ -99,6 +99,18 @@ def create_invitation(
             detail="Email already registered",
         )
 
+    # Role validation
+    if body.role == UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot invite super admins",
+        )
+    if body.role == UserRole.ADMIN and admin.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can invite admins",
+        )
+
     # Check for existing unused invitation
     existing_inv = session.exec(
         select(InvitationToken).where(
@@ -118,7 +130,7 @@ def create_invitation(
 
     inv = InvitationToken(
         email=body.email,
-        role="EVALUATOR",
+        role=body.role.value,
         token_hash=token_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.INVITATION_EXPIRE_DAYS),
         invited_by=admin.id,
@@ -134,7 +146,7 @@ def create_invitation(
     session.commit()
     session.refresh(inv)
 
-    send_invitation_email(body.email, "EVALUATOR", raw_token)
+    send_invitation_email(body.email, body.role.value, raw_token)
 
     return inv
 
