@@ -1,8 +1,9 @@
 import hashlib
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlmodel import Session, select
 
 from app.config import settings
@@ -27,10 +28,12 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 @router.get("/users", response_model=list[UserRead])
 def list_users(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=500),
     session: Session = Depends(get_session),
     admin: User = Depends(get_current_admin),
 ):
-    users = session.exec(select(User)).all()
+    users = session.exec(select(User).offset(skip).limit(limit)).all()
     return users
 
 
@@ -146,7 +149,10 @@ def create_invitation(
     session.commit()
     session.refresh(inv)
 
-    send_invitation_email(body.email, body.role.value, raw_token)
+    try:
+        send_invitation_email(body.email, body.role.value, raw_token)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to send invitation email to %s", body.email)
 
     return inv
 
@@ -164,11 +170,54 @@ def list_invitations(
     return invitations
 
 
+@router.post("/invitations/{invitation_id}/resend", response_model=InvitationRead)
+@limiter.limit("10/minute")
+def resend_invitation(
+    request: Request,
+    invitation_id: int,
+    session: Session = Depends(get_session),
+    admin: User = Depends(get_current_admin),
+):
+    inv = session.get(InvitationToken, invitation_id)
+    if not inv:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found",
+        )
+
+    if inv.used:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invitation already used",
+        )
+
+    # Generate fresh token and extend expiry
+    raw_token = secrets.token_urlsafe(48)
+    inv.token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    inv.expires_at = datetime.now(timezone.utc) + timedelta(days=settings.INVITATION_EXPIRE_DAYS)
+
+    session.add(inv)
+    log_action(
+        session, admin.id, "RESEND_INVITATION",
+        resource_type="invitation", resource_id=inv.id,
+        detail=inv.email,
+    )
+    session.commit()
+    session.refresh(inv)
+
+    try:
+        send_invitation_email(inv.email, inv.role, raw_token)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to send invitation email to %s", inv.email)
+
+    return inv
+
+
 @router.delete("/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def revoke_invitation(
     invitation_id: int,
     session: Session = Depends(get_session),
-    admin: User = Depends(get_current_super_admin),
+    admin: User = Depends(get_current_admin),
 ):
     inv = session.get(InvitationToken, invitation_id)
     if not inv:

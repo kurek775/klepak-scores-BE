@@ -23,6 +23,7 @@ from app.models.diploma_template import DiplomaTemplate, DiplomaOrientation
 from app.schemas.event import (
     CsvPreviewResponse,
     EventDetailRead,
+    EventEvaluatorAdd,
     EventRead,
     EventUpdate,
     GroupCreate,
@@ -535,7 +536,7 @@ def list_event_evaluators(
 @router.post("/{event_id}/evaluators", status_code=status.HTTP_201_CREATED)
 def add_event_evaluator(
     event_id: int,
-    body: dict,
+    body: EventEvaluatorAdd,
     session: Session = Depends(get_session),
     _admin: User = Depends(get_current_admin),
 ):
@@ -543,11 +544,7 @@ def add_event_evaluator(
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
-    user_id = body.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="user_id is required")
-
-    user = session.get(User, user_id)
+    user = session.get(User, body.user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if not user.is_active:
@@ -555,11 +552,11 @@ def add_event_evaluator(
     if user.role != UserRole.EVALUATOR:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not an evaluator")
 
-    existing = session.get(EventEvaluator, (event_id, user_id))
+    existing = session.get(EventEvaluator, (event_id, body.user_id))
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Evaluator already assigned to this event")
 
-    link = EventEvaluator(event_id=event_id, user_id=user_id)
+    link = EventEvaluator(event_id=event_id, user_id=body.user_id)
     session.add(link)
     session.commit()
     return {"detail": "Evaluator added to event"}

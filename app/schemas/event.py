@@ -117,3 +117,7 @@ class GroupUpdate(BaseModel):
 class ManualEventCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     groups: list[GroupInput] = Field(min_length=1)
+
+
+class EventEvaluatorAdd(BaseModel):
+    user_id: int

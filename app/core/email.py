@@ -71,7 +71,7 @@ def send_invitation_email(to: str, role: str, raw_token: str) -> None:
     role_label = html.escape(
         "Evaluator" if role == "EVALUATOR" else role.replace("_", " ").title()
     )
-    html = f"""\
+    html_body = f"""\
 <html>
 <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
   <h2>You've Been Invited!</h2>
@@ -88,13 +88,13 @@ def send_invitation_email(to: str, role: str, raw_token: str) -> None:
   <p style="color: #6b7280; font-size: 12px;">Klepak Scores</p>
 </body>
 </html>"""
-    send_email(to, f"You're invited to Klepak Scores as {role_label}", html)
+    send_email(to, f"You're invited to Klepak Scores as {role_label}", html_body)
 
 
 def send_onboarding_email(to: str, raw_token: str) -> None:
     """Send the super admin onboarding email with a setup link."""
     setup_url = f"{settings.FRONTEND_URL}/setup-account?token={raw_token}"
-    html = f"""\
+    html_body = f"""\
 <html>
 <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
   <h2>Welcome to Klepak Scores!</h2>
@@ -111,4 +111,4 @@ def send_onboarding_email(to: str, raw_token: str) -> None:
   <p style="color: #6b7280; font-size: 12px;">Klepak Scores</p>
 </body>
 </html>"""
-    send_email(to, "Set Up Your Super Admin Account - Klepak Scores", html)
+    send_email(to, "Set Up Your Super Admin Account - Klepak Scores", html_body)

@@ -23,7 +23,7 @@ FastAPI backend for the Klepak Scores competition-management platform. Handles a
 
 - **Authentication** — JWT HS256, registration, login, invitation-based onboarding, password reset (token + SMTP)
 - **Role-based access** — Super Admin, Admin, Evaluator roles with scoped permissions
-- **Events** — CRUD, CSV import with column mapping & preview, age categories
+- **Events** — CRUD, CSV import with column mapping & preview, age categories, DRAFT/ACTIVE/ARCHIVED status lifecycle
 - **Evaluator pools** — Event-level evaluator pool, group assignment requires pool membership
 - **Scoring** — Single & bulk record submission, upsert semantics (unique per participant + activity)
 - **AI OCR** — Image → Gemini 2.0 Flash → fuzzy-matched participant scores for human review
@@ -58,7 +58,7 @@ Participant + Activity ──< Record (unique constraint)
 |---|---|---|
 | **auth** | `/auth` | `POST /register`, `POST /login`, `GET /me`, `POST /forgot-password`, `POST /reset-password`, `GET /validate-invitation`, `POST /accept-invitation` |
 | **admin** | `/admin` | `GET /users`, `PATCH /users/{id}`, `POST /invitations`, `GET /invitations`, `DELETE /invitations/{id}` |
-| **events** | `/events` | `GET /`, `POST /manual`, `GET /{id}`, `DELETE /{id}`, `POST /preview-csv`, `POST /import`, age-category CRUD, evaluator pool CRUD, `POST /{id}/evaluators/move` |
+| **events** | `/events` | `GET /`, `POST /manual`, `GET /{id}`, `PATCH /{id}`, `DELETE /{id}`, `POST /{id}/groups`, `POST /preview-csv`, `POST /import`, age-category CRUD, evaluator pool CRUD |
 | **groups** | `/groups` | `GET /my-groups`, evaluator assignment CRUD per group |
 | **activities** | — | `POST /activities`, `GET /events/{id}/activities`, `DELETE /activities/{id}` |
 | **records** | — | `POST /records`, `POST /records/bulk`, `POST /records/process-image`, `GET /activities/{id}/records` |
@@ -78,7 +78,7 @@ klepak-scores-BE/
 │   ├── database.py           # SQLAlchemy engine, get_session, init_db()
 │   ├── models/               # 13 SQLModel table classes
 │   │   ├── user.py           # User, UserRole enum (SUPER_ADMIN, ADMIN, EVALUATOR)
-│   │   ├── event.py          # Event, EventStatus enum
+│   │   ├── event.py          # Event, EventStatus enum (DRAFT, ACTIVE, ARCHIVED)
 │   │   ├── group.py
 │   │   ├── participant.py
 │   │   ├── activity.py       # Activity, EvaluationType enum
@@ -119,20 +119,24 @@ klepak-scores-BE/
 ├── alembic/
 │   ├── env.py
 │   ├── script.py.mako
-│   └── versions/             # 7 versioned migration files
+│   └── versions/             # 10 versioned migration files
 │       ├── 001_initial_schema.py
 │       ├── 002_diploma_multi_template.py
 │       ├── 003_event_evaluator.py
 │       ├── 004_password_reset_token.py
 │       ├── 005_add_foreign_key_indexes.py
 │       ├── 006_invitation_token.py
-│       └── 007_cascade_and_indexes.py
+│       ├── 007_cascade_and_indexes.py
+│       ├── 008_timezone_aware_expires_at.py
+│       ├── 009_drop_event_evaluator.py
+│       └── 010_recreate_event_evaluator.py
 ├── tests/
-│   ├── conftest.py           # In-memory SQLite engine + test client fixtures
-│   ├── test_auth.py          # 9 tests
-│   ├── test_events.py        # 10 tests
-│   ├── test_records.py       # 6 tests
-│   └── test_analytics.py     # 6 tests
+│   ├── conftest.py               # In-memory SQLite engine + test client fixtures
+│   ├── test_auth.py              # 10 tests
+│   ├── test_events.py            # 10 tests
+│   ├── test_event_evaluators.py  # 7 tests
+│   ├── test_records.py           # 6 tests
+│   └── test_analytics.py        # 6 tests
 ├── alembic.ini
 ├── Dockerfile
 ├── pytest.ini
@@ -182,7 +186,7 @@ Migrations run automatically via the `migrate` service before the API starts.
 
 ## Database Migrations
 
-Migrations are managed with **Alembic** (7 versioned files in `alembic/versions/`).
+Migrations are managed with **Alembic** (10 versioned files in `alembic/versions/`).
 
 ```bash
 # Run migrations (inside the BE directory):
@@ -211,7 +215,7 @@ pip install -r requirements.txt
 pytest tests/ -v --tb=short
 ```
 
-31 tests across 4 test files. Configuration in `pytest.ini`.
+39 tests across 5 test files. Configuration in `pytest.ini`.
 
 ## Key Design Decisions
 

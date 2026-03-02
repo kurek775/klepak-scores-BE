@@ -98,7 +98,7 @@ def delete_group(
     if participant_count > 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete a group that still has participants",
+            detail=f"Cannot delete group — it still has {participant_count} participant(s). Remove or move them first.",
         )
     session.delete(group)
     session.commit()

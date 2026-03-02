@@ -50,12 +50,21 @@ def _call_gemini_ocr(image_bytes: bytes, participant_names: list[str]) -> list[d
 
     response = model.generate_content(
         [prompt, {"mime_type": "image/jpeg", "data": image_bytes}],
-        request_options={"timeout": 15},
+        request_options={"timeout": 30},
     )
 
     # Clean markdown formatting if present
     text_data = response.text.replace('```json', '').replace('```', '').strip()
-    return json.loads(text_data)
+    parsed = json.loads(text_data)
+
+    # Validate response structure
+    if not isinstance(parsed, list):
+        raise ValueError("Gemini response is not a list")
+    for item in parsed:
+        if not isinstance(item, dict) or "name" not in item or "value" not in item:
+            raise ValueError("Gemini response item missing 'name' or 'value'")
+
+    return parsed
 
 
 @router.post("/records/process-image")
@@ -100,8 +109,25 @@ async def process_image(
 
     try:
         ocr_results = _call_gemini_ocr(image_bytes, participant_names)
-    except Exception:
+    except TimeoutError:
+        logger.warning("Gemini OCR timeout for activity %s", activity_id)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="AI processing took too long. Try a smaller or clearer image.",
+        )
+    except json.JSONDecodeError:
+        logger.exception("Gemini OCR returned invalid JSON")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="AI returned an unreadable response. Please try again or enter scores manually.",
+        )
+    except Exception as exc:
         logger.exception("Gemini OCR service error")
+        if "429" in str(exc) or "quota" in str(exc).lower():
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="AI service is busy. Please try again in a few moments.",
+            )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="AI score extraction failed. Please try again or enter scores manually.",
@@ -171,7 +197,9 @@ def _upsert_record(
 
 
 @router.post("/records", response_model=RecordRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("60/minute")
 def submit_record(
+    request: Request,
     body: RecordCreate,
     session: Session = Depends(get_session),
     user: User = Depends(get_current_active_user),
@@ -197,7 +225,9 @@ def submit_record(
 
 
 @router.post("/records/bulk", response_model=list[RecordRead], status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def submit_bulk_records(
+    request: Request,
     body: BulkRecordCreate,
     session: Session = Depends(get_session),
     user: User = Depends(get_current_active_user),
