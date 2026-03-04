@@ -88,7 +88,7 @@ class CreateInvitationRequest(BaseModel):
 class InvitationRead(BaseModel):
     id: int
     email: str
-    role: str
+    role: UserRole
     used: bool
     expires_at: datetime
     created_at: datetime

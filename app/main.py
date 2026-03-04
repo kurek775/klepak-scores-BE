@@ -13,6 +13,8 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from datetime import datetime, timedelta, timezone
 
+from app.core.exceptions import AppException
+
 from sqlmodel import Session, delete, select, text
 
 from app.config import settings as app_settings
@@ -118,6 +120,11 @@ app = FastAPI(title="Klepak Scores API", lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(AppException)
+async def app_exception_handler(_request: Request, exc: AppException):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 _cors_origins = [o.strip() for o in app_settings.CORS_ORIGINS.split(",")]
 app.add_middleware(

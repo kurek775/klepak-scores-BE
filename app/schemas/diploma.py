@@ -48,8 +48,8 @@ class DiplomaTemplateRead(BaseModel):
     name: str
     bg_image_url: str | None
     orientation: DiplomaOrientation
-    items: list[dict]
-    fonts: list[dict]
+    items: list[DiplomaItem]
+    fonts: list[DiplomaFont]
     default_font: str | None
     created_at: datetime
 

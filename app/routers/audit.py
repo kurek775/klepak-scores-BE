@@ -1,8 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, func, select
 
-from app.core.dependencies import get_current_active_user
-from app.core.permissions import require_admin
+from app.core.dependencies import get_current_admin
 from app.database import get_session
 from app.models.audit_log import AuditLog
 from app.models.user import User
@@ -16,9 +15,8 @@ def get_audit_logs(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=1000),
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_user),
+    _admin: User = Depends(get_current_admin),
 ):
-    require_admin(current_user)
 
     total = session.exec(select(func.count(AuditLog.id))).one()
     logs = session.exec(

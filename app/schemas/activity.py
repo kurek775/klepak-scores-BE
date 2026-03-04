@@ -30,18 +30,18 @@ class ActivityRead(BaseModel):
 
 class RecordEntry(BaseModel):
     participant_id: int
-    value_raw: str | int = Field(max_length=500)
+    value_raw: str = Field(max_length=500)
 
 
 class RecordCreate(BaseModel):
-    value_raw: str | int = Field(max_length=500)
+    value_raw: str = Field(max_length=500)
     participant_id: int
     activity_id: int
 
 
 class RecordRead(BaseModel):
     id: int
-    value_raw: str | int
+    value_raw: str
     participant_id: int
     activity_id: int
     evaluator_id: int | None

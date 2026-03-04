@@ -4,37 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.models.event import EventStatus
 from app.schemas.activity import ActivityRead
-from app.schemas.group import EvaluatorRead
-
-
-class ParticipantRead(BaseModel):
-    id: int
-    display_name: str
-    external_id: str | None = None
-    gender: str | None = None
-    age: int | None = None
-    metadata: dict | None = Field(default=None, alias="metadata_json")
-
-    model_config = {"from_attributes": True, "populate_by_name": True}
-
-
-class GroupRead(BaseModel):
-    id: int
-    name: str
-    identifier: str
-    participant_count: int = 0
-
-    model_config = {"from_attributes": True}
-
-
-class GroupDetailRead(BaseModel):
-    id: int
-    name: str
-    identifier: str
-    participants: list[ParticipantRead] = []
-    evaluators: list[EvaluatorRead] = []
-
-    model_config = {"from_attributes": True}
+from app.schemas.group import EvaluatorRead, GroupDetailRead, GroupInput
 
 
 class EventRead(BaseModel):
@@ -75,43 +45,9 @@ class CsvPreviewResponse(BaseModel):
     total_rows: int
 
 
-class ParticipantCreate(BaseModel):
-    display_name: str = Field(min_length=1, max_length=255)
-    external_id: str | None = Field(default=None, max_length=255)
-    gender: str | None = Field(default=None, max_length=50)
-    age: int | None = Field(default=None, ge=0, le=200)
-
-
-class GroupInput(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    identifier: str = Field(default="", max_length=255)
-    participants: list[ParticipantCreate] = []
-
-
 class EventUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     status: EventStatus | None = None
-
-
-class ParticipantUpdate(BaseModel):
-    display_name: str | None = Field(default=None, min_length=1, max_length=255)
-    external_id: str | None = Field(default=None, max_length=255)
-    gender: str | None = Field(default=None, max_length=50)
-    age: int | None = Field(default=None, ge=0, le=200)
-
-
-class ParticipantMoveRequest(BaseModel):
-    group_id: int
-
-
-class GroupCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-    identifier: str = Field(default="", max_length=255)
-
-
-class GroupUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
-    identifier: str | None = Field(default=None, max_length=255)
 
 
 class ManualEventCreate(BaseModel):

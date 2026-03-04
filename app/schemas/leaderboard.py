@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from app.models.activity import EvaluationType
+
 
 class ParticipantRank(BaseModel):
     rank: int
@@ -20,7 +22,7 @@ class CategoryRanking(BaseModel):
 class ActivityLeaderboard(BaseModel):
     activity_id: int
     activity_name: str
-    evaluation_type: str
+    evaluation_type: EvaluationType
     categories: list[CategoryRanking]
 
 
