@@ -37,6 +37,13 @@ class ConflictException(AppException):
         super().__init__(message=message, status_code=409)
 
 
+class UnauthorizedException(AppException):
+    """Raised when authentication fails (invalid credentials)."""
+
+    def __init__(self, message: str = "Unauthorized"):
+        super().__init__(message=message, status_code=401)
+
+
 class ValidationException(AppException):
     """Raised on business-rule validation failures."""
 

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 from app.core.authorization import require_event_access
 from app.core.dependencies import get_current_active_user, get_current_admin
+from app.core.limiter import limiter
 from app.database import get_session
 from app.models.user import User
 from app.schemas.leaderboard import LeaderboardResponse
@@ -23,7 +24,9 @@ def get_leaderboard(
 
 
 @router.get("/events/{event_id}/export-csv")
+@limiter.limit("10/minute")
 def export_csv(
+    request: Request,
     event_id: int,
     session: Session = Depends(get_session),
     _admin: User = Depends(get_current_admin),

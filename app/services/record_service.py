@@ -7,8 +7,9 @@ import google.generativeai as genai
 from sqlmodel import Session, select
 
 from app.config import settings
-from app.core.exceptions import ForbiddenException, NotFoundException, ValidationException
+from app.core.exceptions import AppException, ForbiddenException, NotFoundException, ValidationException
 from app.core.redis_client import redis_client
+from app.core.audit import log_action
 from app.models.activity import Activity
 from app.models.group import Group
 from app.models.group_evaluator import GroupEvaluator
@@ -42,23 +43,34 @@ def _check_evaluator_access(session: Session, user: User, participant_id: int) -
         raise ForbiddenException("You are not assigned to this participant's group")
 
 
-def _upsert_record(session: Session, user: User, activity_id: int, participant_id: int, value_raw: str) -> Record:
-    """Insert or update a record for a participant/activity pair."""
+def _upsert_record(session: Session, user: User, activity_id: int, participant_id: int, value_raw: str) -> tuple[Record, bool]:
+    """Insert or update a record for a participant/activity pair. Returns (record, is_update)."""
     existing = session.exec(
         select(Record).where(Record.participant_id == participant_id, Record.activity_id == activity_id)
     ).first()
     value_str = str(value_raw)
     if existing:
+        old_value = existing.value_raw
         existing.value_raw = value_str
         existing.evaluator_id = user.id
         session.add(existing)
-        return existing
+        log_action(
+            session, user.id, "UPDATE_RECORD",
+            resource_type="record", resource_id=existing.id,
+            detail=f"participant={participant_id}, activity={activity_id}, '{old_value}' -> '{value_str}'",
+        )
+        return existing, True
     record = Record(
         value_raw=value_str, participant_id=participant_id,
         activity_id=activity_id, evaluator_id=user.id,
     )
     session.add(record)
-    return record
+    log_action(
+        session, user.id, "CREATE_RECORD",
+        resource_type="record",
+        detail=f"participant={participant_id}, activity={activity_id}, value='{value_str}'",
+    )
+    return record, False
 
 
 def _invalidate_leaderboard_cache(event_id: int | None) -> None:
@@ -120,7 +132,11 @@ def _call_gemini_ocr(image_bytes: bytes, participant_names: list[str]) -> list[d
 
 async def process_image(session: Session, user: User, file, activity_id: int, group_id: int) -> list[dict]:
     """Process an uploaded image through Gemini OCR."""
-    get_or_404(session, Activity, activity_id, "Activity")
+    activity = get_or_404(session, Activity, activity_id, "Activity")
+    group = get_or_404(session, Group, group_id, "Group")
+
+    if activity.event_id != group.event_id:
+        raise ValidationException("Activity does not belong to the same event as the group")
 
     link = session.exec(
         select(GroupEvaluator).where(GroupEvaluator.group_id == group_id, GroupEvaluator.user_id == user.id)
@@ -143,18 +159,15 @@ async def process_image(session: Session, user: User, file, activity_id: int, gr
         ocr_results = _call_gemini_ocr(image_bytes, participant_names)
     except TimeoutError:
         logger.warning("Gemini OCR timeout for activity %s", activity_id)
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="AI processing took too long. Try a smaller or clearer image.")
+        raise AppException("AI processing took too long. Try a smaller or clearer image.", status_code=504)
     except json.JSONDecodeError:
         logger.exception("Gemini OCR returned invalid JSON")
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI returned an unreadable response. Please try again or enter scores manually.")
+        raise AppException("AI returned an unreadable response. Please try again or enter scores manually.", status_code=502)
     except Exception as exc:
         logger.exception("Gemini OCR service error")
-        from fastapi import HTTPException, status
         if "429" in str(exc) or "quota" in str(exc).lower():
-            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="AI service is busy. Please try again in a few moments.")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI score extraction failed. Please try again or enter scores manually.")
+            raise AppException("AI service is busy. Please try again in a few moments.", status_code=429)
+        raise AppException("AI score extraction failed. Please try again or enter scores manually.", status_code=502)
 
     matched = []
     for result in ocr_results:
@@ -173,8 +186,14 @@ async def process_image(session: Session, user: User, file, activity_id: int, gr
 
 def submit_record(session: Session, user: User, body: RecordCreate) -> RecordRead:
     activity = get_or_404(session, Activity, body.activity_id, "Activity")
+    participant = session.get(Participant, body.participant_id)
+    if not participant:
+        raise NotFoundException("Participant", body.participant_id)
+    group = session.get(Group, participant.group_id)
+    if group.event_id != activity.event_id:
+        raise ValidationException("Activity does not belong to the same event as the participant's group")
     _check_evaluator_access(session, user, body.participant_id)
-    record = _upsert_record(session, user, body.activity_id, body.participant_id, body.value_raw)
+    record, _ = _upsert_record(session, user, body.activity_id, body.participant_id, body.value_raw)
     session.commit()
     session.refresh(record)
     _invalidate_leaderboard_cache(activity.event_id)
@@ -193,6 +212,11 @@ def submit_bulk_records(session: Session, user: User, body: BulkRecordCreate) ->
             raise NotFoundException("Participant", entry.participant_id)
 
     group_ids = {p.group_id for p in participants}
+    groups = session.exec(select(Group).where(Group.id.in_(group_ids))).all()
+    for g in groups:
+        if g.event_id != activity.event_id:
+            raise ValidationException("Activity does not belong to the same event as the participant's group")
+
     evaluator_links = session.exec(
         select(GroupEvaluator).where(GroupEvaluator.group_id.in_(group_ids), GroupEvaluator.user_id == user.id)
     ).all()
@@ -205,7 +229,7 @@ def submit_bulk_records(session: Session, user: User, body: BulkRecordCreate) ->
 
     results: list[Record] = []
     for entry in body.records:
-        record = _upsert_record(session, user, body.activity_id, entry.participant_id, entry.value_raw)
+        record, _ = _upsert_record(session, user, body.activity_id, entry.participant_id, entry.value_raw)
         results.append(record)
     session.commit()
     for r in results:

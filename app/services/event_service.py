@@ -153,6 +153,11 @@ def get_event_detail(session: Session, event_id: int, user: User) -> EventDetail
 
     is_admin = user.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)
 
+    if not is_admin:
+        pool_link = session.get(EventEvaluator, (event_id, user.id))
+        if not pool_link:
+            raise ForbiddenException("You are not assigned to this event")
+
     pool_user_ids = [ee.user_id for ee in event.event_evaluators]
     pool_users = []
     if pool_user_ids:

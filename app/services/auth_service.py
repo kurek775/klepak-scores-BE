@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.core.audit import log_action
 from app.core.email import send_password_reset_email
-from app.core.exceptions import ConflictException, NotFoundException, ValidationException
+from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException, UnauthorizedException, ValidationException
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.invitation_token import InvitationToken
 from app.models.password_reset_token import PasswordResetToken
@@ -65,11 +65,9 @@ def login(session: Session, body: LoginRequest) -> TokenResponse:
     if not user or not verify_password(body.password, user.password_hash):
         log_action(session, None, "LOGIN_FAILED", detail=body.email)
         session.commit()
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        raise UnauthorizedException("Invalid email or password")
     if not user.is_active:
-        from fastapi import HTTPException, status
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account not yet approved")
+        raise ForbiddenException("Account not yet approved")
     log_action(session, user.id, "LOGIN", resource_type="user", resource_id=user.id)
     session.commit()
     token = create_access_token(subject=user.email)
