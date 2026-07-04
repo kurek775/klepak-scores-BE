@@ -5,8 +5,9 @@ from app.core.dependencies import get_current_active_user, get_current_admin
 from app.core.limiter import limiter
 from app.database import get_session
 from app.models.user import User
-from app.schemas.age_category import AgeCategoryCreate, AgeCategoryRead
+from app.schemas.age_category import AgeCategoryCreate, AgeCategoryRead, AgeCategoryUpdate
 from app.schemas.event import (
+    BootstrapEvaluatorsResponse,
     CsvPreviewResponse,
     EventDetailRead,
     EventEvaluatorAdd,
@@ -86,10 +87,11 @@ def import_event(
     event_name: str = Form(...),
     file: UploadFile = File(...),
     column_mapping: str | None = Form(default=None),
+    bootstrap: bool = False,
     session: Session = Depends(get_session),
     admin: User = Depends(get_current_admin),
 ):
-    return event_service.import_event(session, event_name, file, column_mapping, admin)
+    return event_service.import_event(session, event_name, file, column_mapping, admin, bootstrap=bootstrap)
 
 
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -134,6 +136,21 @@ def remove_event_evaluator(
     event_service.remove_event_evaluator(session, event_id, user_id, admin)
 
 
+@router.post(
+    "/{event_id}/bootstrap-evaluators",
+    response_model=BootstrapEvaluatorsResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("10/minute")
+def bootstrap_evaluators(
+    request: Request,
+    event_id: int,
+    session: Session = Depends(get_session),
+    admin: User = Depends(get_current_admin),
+):
+    return event_service.bootstrap_event_evaluators(session, event_id, admin)
+
+
 # ── Age categories ───────────────────────────────────────────────────────────
 
 
@@ -154,6 +171,17 @@ def create_age_category(
     _admin: User = Depends(get_current_admin),
 ):
     return event_service.create_age_category(session, event_id, body)
+
+
+@router.patch("/{event_id}/age-categories/{category_id}", response_model=AgeCategoryRead)
+def update_age_category(
+    event_id: int,
+    category_id: int,
+    body: AgeCategoryUpdate,
+    session: Session = Depends(get_session),
+    _admin: User = Depends(get_current_admin),
+):
+    return event_service.update_age_category(session, event_id, category_id, body)
 
 
 @router.delete("/{event_id}/age-categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)

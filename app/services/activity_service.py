@@ -32,6 +32,8 @@ def update_activity(session: Session, activity_id: int, body: ActivityUpdate) ->
         activity.name = body.name
     if body.description is not None:
         activity.description = body.description
+    if body.evaluation_type is not None:
+        activity.evaluation_type = body.evaluation_type
     session.add(activity)
     session.commit()
     session.refresh(activity)

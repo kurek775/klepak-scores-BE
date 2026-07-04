@@ -13,6 +13,12 @@ class AgeCategoryCreate(BaseModel):
         return self
 
 
+class AgeCategoryUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    min_age: int | None = Field(default=None, ge=0, le=999)
+    max_age: int | None = Field(default=None, ge=0, le=999)
+
+
 class AgeCategoryRead(BaseModel):
     id: int
     event_id: int

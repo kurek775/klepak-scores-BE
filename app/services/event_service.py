@@ -3,6 +3,7 @@
 import csv
 import io
 import json as json_module
+import secrets
 
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
@@ -14,6 +15,8 @@ from app.core.exceptions import (
     NotFoundException,
     ValidationException,
 )
+from app.core.security import hash_password
+from app.core.text import deaccent, slugify
 from app.models.activity import Activity
 from app.models.age_category import AgeCategory
 from app.models.diploma_template import DiplomaOrientation, DiplomaTemplate
@@ -24,8 +27,10 @@ from app.models.group_evaluator import GroupEvaluator
 from app.models.participant import Participant
 from app.models.user import User, UserRole
 from app.schemas.activity import ActivityRead
-from app.schemas.age_category import AgeCategoryCreate, AgeCategoryRead
+from app.schemas.age_category import AgeCategoryCreate, AgeCategoryRead, AgeCategoryUpdate
 from app.schemas.event import (
+    BootstrapEvaluatorCredential,
+    BootstrapEvaluatorsResponse,
     CsvPreviewResponse,
     EventDetailRead,
     EventRead,
@@ -241,7 +246,10 @@ def preview_csv(file) -> CsvPreviewResponse:
     return CsvPreviewResponse(headers=headers, sample_rows=data_rows[:5], total_rows=len(data_rows))
 
 
-def import_event(session: Session, event_name: str, file, column_mapping: str | None, admin: User) -> ImportSummary:
+def import_event(
+    session: Session, event_name: str, file, column_mapping: str | None, admin: User,
+    bootstrap: bool = False,
+) -> ImportSummary:
     event_name = event_name.strip()
     if not event_name or len(event_name) > 255:
         raise ValidationException("Event name must be between 1 and 255 characters")
@@ -288,10 +296,14 @@ def import_event(session: Session, event_name: str, file, column_mapping: str | 
     _create_default_diploma(session, event.id)
     session.commit()
 
-    return ImportSummary(
+    summary = ImportSummary(
         event_id=event.id, event_name=event.name,
         groups_created=len(group_map), participants_created=participant_count,
     )
+    if bootstrap:
+        result = bootstrap_event_evaluators(session, event.id, admin)
+        summary.evaluators = result.created
+    return summary
 
 
 def _parse_csv_rows(reader: csv.DictReader, column_mapping: str | None) -> list[tuple[dict, dict | None]]:
@@ -416,9 +428,110 @@ def create_age_category(session: Session, event_id: int, body: AgeCategoryCreate
     return AgeCategoryRead.model_validate(cat)
 
 
+def update_age_category(
+    session: Session, event_id: int, category_id: int, body: AgeCategoryUpdate
+) -> AgeCategoryRead:
+    cat = session.get(AgeCategory, category_id)
+    if not cat or cat.event_id != event_id:
+        raise NotFoundException("Age category", category_id)
+
+    new_min = body.min_age if body.min_age is not None else cat.min_age
+    new_max = body.max_age if body.max_age is not None else cat.max_age
+    if new_min > new_max:
+        raise ValidationException("min_age must be less than or equal to max_age")
+
+    if body.name is not None:
+        cat.name = body.name
+    cat.min_age = new_min
+    cat.max_age = new_max
+    session.add(cat)
+    session.commit()
+    session.refresh(cat)
+    return AgeCategoryRead.model_validate(cat)
+
+
 def delete_age_category(session: Session, event_id: int, category_id: int) -> None:
     cat = session.get(AgeCategory, category_id)
     if not cat or cat.event_id != event_id:
         raise NotFoundException("Age category", category_id)
     session.delete(cat)
     session.commit()
+
+
+# ── Bootstrap evaluators (one per group when the event has none) ──────────────
+
+
+def _unique_evaluator_email(session: Session, group_slug: str, event_slug: str) -> str:
+    # These emails are login handles only — no mail is ever sent. Must be a real
+    # TLD so EmailStr validation on /auth/login accepts it (special-use TLDs like
+    # ".local" are rejected).
+    base = f"{group_slug}@{event_slug}.cz"
+    if not session.exec(select(User).where(User.email == base)).first():
+        return base
+    for _ in range(10):
+        candidate = f"{group_slug}-{secrets.token_hex(2)}@{event_slug}.cz"
+        if not session.exec(select(User).where(User.email == candidate)).first():
+            return candidate
+    return f"{group_slug}-{secrets.token_hex(6)}@{event_slug}.cz"
+
+
+def bootstrap_event_evaluators(
+    session: Session, event_id: int, admin: User
+) -> BootstrapEvaluatorsResponse:
+    """Create one active EVALUATOR per group that has none, scoped to that group.
+
+    Idempotent: groups that already have an evaluator are skipped. The shared
+    password is the event name with diacritics stripped (padded to >= 8 chars).
+    Generated credentials are returned once so the admin can hand them out.
+    """
+    event = get_or_404(session, Event, event_id, "Event")
+    groups = session.exec(
+        select(Group).where(Group.event_id == event_id).order_by(Group.id)
+    ).all()
+
+    password_plain = deaccent(event.name).strip() or "klepak"
+    if len(password_plain) < 8:
+        password_plain = password_plain.ljust(8, "0")
+    password_hash = hash_password(password_plain)  # same password for every group
+    event_slug = slugify(event.name)
+
+    created: list[BootstrapEvaluatorCredential] = []
+    skipped: list[str] = []
+
+    for group in groups:
+        has_evaluator = session.exec(
+            select(GroupEvaluator).where(GroupEvaluator.group_id == group.id)
+        ).first()
+        if has_evaluator:
+            skipped.append(group.name)
+            continue
+
+        email = _unique_evaluator_email(session, slugify(group.name), event_slug)
+        full_name = f"Vedoucí {group.name}"
+        user = User(
+            email=email,
+            password_hash=password_hash,
+            full_name=full_name,
+            role=UserRole.EVALUATOR,
+            is_active=True,
+        )
+        session.add(user)
+        session.flush()
+
+        session.add(EventEvaluator(event_id=event.id, user_id=user.id))
+        session.add(GroupEvaluator(group_id=group.id, user_id=user.id))
+        log_action(
+            session, admin.id, "BOOTSTRAP_EVALUATOR",
+            resource_type="user", resource_id=user.id, detail=f"group={group.name}",
+        )
+        created.append(
+            BootstrapEvaluatorCredential(
+                group_id=group.id, group_name=group.name, full_name=full_name,
+                email=email, password=password_plain,
+            )
+        )
+
+    session.commit()
+    return BootstrapEvaluatorsResponse(
+        event_id=event.id, created=created, skipped_groups=skipped
+    )

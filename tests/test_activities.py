@@ -105,6 +105,23 @@ def test_update_activity(client: TestClient, admin_token: str):
     assert resp.json()["description"] == "Jumping high"
 
 
+def test_update_activity_evaluation_type(client: TestClient, admin_token: str):
+    """Evaluation type (how a sport is scored) can be changed after creation."""
+    event_id = _import_event(client, admin_token)
+    activity_id = client.post(
+        "/activities", headers=auth_headers(admin_token),
+        json={"name": "Jump", "evaluation_type": "NUMERIC_HIGH", "event_id": event_id},
+    ).json()["id"]
+
+    resp = client.patch(
+        f"/activities/{activity_id}",
+        headers=auth_headers(admin_token),
+        json={"evaluation_type": "BOOLEAN"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["evaluation_type"] == "BOOLEAN"
+
+
 def test_update_activity_non_admin_403(client: TestClient, admin_token: str, evaluator_token: str):
     event_id = _import_event(client, admin_token)
     activity_id = client.post(

@@ -108,6 +108,76 @@ def test_age_category_crud(client: TestClient, admin_token: str):
     assert resp.json() == []
 
 
+def test_update_age_category(client: TestClient, admin_token: str):
+    event_id = _import_event(client, admin_token).json()["event_id"]
+    base_url = f"/events/{event_id}/age-categories"
+    cat_id = client.post(
+        base_url, headers=auth_headers(admin_token),
+        json={"name": "Junior", "min_age": 0, "max_age": 17},
+    ).json()["id"]
+
+    # partial update: rename + lower the max, min stays as-is
+    resp = client.patch(
+        f"{base_url}/{cat_id}",
+        headers=auth_headers(admin_token),
+        json={"name": "Juniors", "max_age": 15},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "Juniors"
+    assert data["min_age"] == 0
+    assert data["max_age"] == 15
+
+
+def test_update_age_category_invalid_range_400(client: TestClient, admin_token: str):
+    """Merged min_age must not exceed max_age."""
+    event_id = _import_event(client, admin_token).json()["event_id"]
+    base_url = f"/events/{event_id}/age-categories"
+    cat_id = client.post(
+        base_url, headers=auth_headers(admin_token),
+        json={"name": "Junior", "min_age": 0, "max_age": 17},
+    ).json()["id"]
+
+    resp = client.patch(
+        f"{base_url}/{cat_id}",
+        headers=auth_headers(admin_token),
+        json={"min_age": 20},  # 20 > existing max_age 17
+    )
+    assert resp.status_code == 400
+
+
+def test_update_age_category_wrong_event_404(client: TestClient, admin_token: str):
+    event_id = _import_event(client, admin_token).json()["event_id"]
+    cat_id = client.post(
+        f"/events/{event_id}/age-categories",
+        headers=auth_headers(admin_token),
+        json={"name": "Senior", "min_age": 18, "max_age": 99},
+    ).json()["id"]
+
+    resp = client.patch(
+        f"/events/9999/age-categories/{cat_id}",
+        headers=auth_headers(admin_token),
+        json={"name": "X"},
+    )
+    assert resp.status_code == 404
+
+
+def test_update_age_category_non_admin_403(client: TestClient, admin_token: str, evaluator_token: str):
+    event_id = _import_event(client, admin_token).json()["event_id"]
+    cat_id = client.post(
+        f"/events/{event_id}/age-categories",
+        headers=auth_headers(admin_token),
+        json={"name": "Junior", "min_age": 0, "max_age": 17},
+    ).json()["id"]
+
+    resp = client.patch(
+        f"/events/{event_id}/age-categories/{cat_id}",
+        headers=auth_headers(evaluator_token),
+        json={"name": "Nope"},
+    )
+    assert resp.status_code == 403
+
+
 def test_delete_age_category_wrong_event_404(client: TestClient, admin_token: str):
     event_id = _import_event(client, admin_token).json()["event_id"]
     cat_id = client.post(

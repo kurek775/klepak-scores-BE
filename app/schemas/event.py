@@ -32,11 +32,20 @@ class EventDetailRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BootstrapEvaluatorCredential(BaseModel):
+    group_id: int
+    group_name: str
+    full_name: str
+    email: str
+    password: str
+
+
 class ImportSummary(BaseModel):
     event_id: int
     event_name: str
     groups_created: int
     participants_created: int
+    evaluators: list[BootstrapEvaluatorCredential] = []
 
 
 class CsvPreviewResponse(BaseModel):
@@ -57,3 +66,9 @@ class ManualEventCreate(BaseModel):
 
 class EventEvaluatorAdd(BaseModel):
     user_id: int
+
+
+class BootstrapEvaluatorsResponse(BaseModel):
+    event_id: int
+    created: list[BootstrapEvaluatorCredential] = []
+    skipped_groups: list[str] = []
