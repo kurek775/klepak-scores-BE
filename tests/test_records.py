@@ -84,6 +84,29 @@ def test_evaluator_cannot_submit_for_unassigned_group(client: TestClient, admin_
     assert resp.status_code == 403
 
 
+def test_admin_can_submit_for_any_group(client: TestClient, admin_token: str, evaluator_token: str):
+    """Admins/super-admins are not assigned to groups but may score any of them."""
+    _, activity_id, _, bob_id, _ = _setup(client, admin_token, evaluator_token)
+    resp = client.post(
+        "/records",
+        headers=auth_headers(admin_token),
+        json={"value_raw": "50", "participant_id": bob_id, "activity_id": activity_id},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["value_raw"] == "50"
+
+
+def test_admin_can_bulk_submit_for_any_group(client: TestClient, admin_token: str, evaluator_token: str):
+    _, activity_id, _, bob_id, _ = _setup(client, admin_token, evaluator_token)
+    resp = client.post(
+        "/records/bulk",
+        headers=auth_headers(admin_token),
+        json={"activity_id": activity_id, "records": [{"participant_id": bob_id, "value_raw": "88"}]},
+    )
+    assert resp.status_code == 201
+    assert len(resp.json()) == 1
+
+
 def test_submit_bulk_records(client: TestClient, admin_token: str, evaluator_token: str):
     _, activity_id, alice_id, _, _ = _setup(client, admin_token, evaluator_token)
     resp = client.post(

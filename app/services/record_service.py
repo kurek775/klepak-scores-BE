@@ -160,11 +160,12 @@ async def process_image(session: Session, user: User, file, activity_id: int, gr
     if activity.event_id != group.event_id:
         raise ValidationException("Activity does not belong to the same event as the group")
 
-    link = session.exec(
-        select(GroupEvaluator).where(GroupEvaluator.group_id == group_id, GroupEvaluator.user_id == user.id)
-    ).first()
-    if not link:
-        raise ForbiddenException("You are not assigned to this group")
+    if user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        link = session.exec(
+            select(GroupEvaluator).where(GroupEvaluator.group_id == group_id, GroupEvaluator.user_id == user.id)
+        ).first()
+        if not link:
+            raise ForbiddenException("You are not assigned to this group")
 
     participants = session.exec(select(Participant).where(Participant.group_id == group_id)).all()
 
@@ -214,7 +215,8 @@ def submit_record(session: Session, user: User, body: RecordCreate) -> RecordRea
     group = session.get(Group, participant.group_id)
     if group.event_id != activity.event_id:
         raise ValidationException("Activity does not belong to the same event as the participant's group")
-    _check_evaluator_access(session, user, body.participant_id)
+    if user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        _check_evaluator_access(session, user, body.participant_id)
     record, _ = _upsert_record(session, user, body.activity_id, body.participant_id, body.value_raw)
     session.commit()
     session.refresh(record)
@@ -239,15 +241,16 @@ def submit_bulk_records(session: Session, user: User, body: BulkRecordCreate) ->
         if g.event_id != activity.event_id:
             raise ValidationException("Activity does not belong to the same event as the participant's group")
 
-    evaluator_links = session.exec(
-        select(GroupEvaluator).where(GroupEvaluator.group_id.in_(group_ids), GroupEvaluator.user_id == user.id)
-    ).all()
-    allowed_groups = {link.group_id for link in evaluator_links}
+    if user.role not in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+        evaluator_links = session.exec(
+            select(GroupEvaluator).where(GroupEvaluator.group_id.in_(group_ids), GroupEvaluator.user_id == user.id)
+        ).all()
+        allowed_groups = {link.group_id for link in evaluator_links}
 
-    for entry in body.records:
-        p = participant_map[entry.participant_id]
-        if p.group_id not in allowed_groups:
-            raise ForbiddenException("You are not assigned to this participant's group")
+        for entry in body.records:
+            p = participant_map[entry.participant_id]
+            if p.group_id not in allowed_groups:
+                raise ForbiddenException("You are not assigned to this participant's group")
 
     results: list[Record] = []
     for entry in body.records:
