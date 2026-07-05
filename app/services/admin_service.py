@@ -5,13 +5,20 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from sqlmodel import Session, select
+from sqlalchemy import update
+from sqlmodel import Session, delete, select
 
 from app.config import settings
 from app.core.audit import log_action
 from app.core.email import send_invitation_email
 from app.core.exceptions import ConflictException, ForbiddenException, NotFoundException, ValidationException
+from app.models.audit_log import AuditLog
+from app.models.event import Event
+from app.models.event_evaluator import EventEvaluator
+from app.models.group_evaluator import GroupEvaluator
 from app.models.invitation_token import InvitationToken
+from app.models.password_reset_token import PasswordResetToken
+from app.models.record import Record
 from app.models.user import User, UserRole
 from app.schemas.auth import CreateInvitationRequest, InvitationRead, UserRead, UserUpdate
 from app.services.common import get_or_404
@@ -52,6 +59,35 @@ def update_user(session: Session, user_id: int, body: UserUpdate, admin: User) -
     session.commit()
     session.refresh(user)
     return UserRead.model_validate(user)
+
+
+def delete_user(session: Session, user_id: int, admin: User) -> None:
+    """Permanently delete a user, detaching or removing everything that
+    references them. Scores they entered are preserved (evaluator link nulled)."""
+    user = get_or_404(session, User, user_id, "User")
+
+    if user.role == UserRole.SUPER_ADMIN:
+        raise ForbiddenException("Cannot delete super admin accounts")
+    if user.id == admin.id:
+        raise ForbiddenException("You cannot delete your own account")
+
+    # Preserve data that merely references the user by nulling the FK.
+    session.execute(update(Record).where(Record.evaluator_id == user_id).values(evaluator_id=None))
+    session.execute(update(Event).where(Event.created_by_id == user_id).values(created_by_id=None))
+    session.execute(update(InvitationToken).where(InvitationToken.invited_by == user_id).values(invited_by=None))
+    session.execute(update(AuditLog).where(AuditLog.user_id == user_id).values(user_id=None))
+
+    # Remove membership/link rows that require the user to exist.
+    session.execute(delete(GroupEvaluator).where(GroupEvaluator.user_id == user_id))
+    session.execute(delete(EventEvaluator).where(EventEvaluator.user_id == user_id))
+    session.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user_id))
+
+    log_action(
+        session, admin.id, "DELETE_USER",
+        resource_type="user", resource_id=user.id, detail=user.email,
+    )
+    session.delete(user)
+    session.commit()
 
 
 def create_invitation(session: Session, body: CreateInvitationRequest, admin: User) -> InvitationRead:

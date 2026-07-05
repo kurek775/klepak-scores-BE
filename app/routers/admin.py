@@ -31,6 +31,15 @@ def update_user(
     return admin_service.update_user(session, user_id, body, admin)
 
 
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: int,
+    session: Session = Depends(get_session),
+    admin: User = Depends(get_current_super_admin),
+):
+    admin_service.delete_user(session, user_id, admin)
+
+
 @router.post("/invitations", response_model=InvitationRead, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
 def create_invitation(

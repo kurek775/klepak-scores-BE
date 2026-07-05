@@ -61,6 +61,40 @@ def test_update_user_role(client: TestClient, admin_token: str, evaluator_token:
     assert resp.json()["role"] == "ADMIN"
 
 
+def test_delete_user(client: TestClient, admin_token: str, evaluator_token: str, engine):
+    """Super admin can permanently delete a non-super-admin user."""
+    _make_super_admin(engine, "admin@test.com")
+    sa = client.post("/auth/login", json={"email": "admin@test.com", "password": "Password1!"}).json()["access_token"]
+
+    eval_user = client.get("/auth/me", headers=auth_headers(evaluator_token)).json()
+    resp = client.delete(f"/admin/users/{eval_user['id']}", headers=auth_headers(sa))
+    assert resp.status_code == 204
+
+    users = client.get("/admin/users", headers=auth_headers(sa)).json()
+    assert all(u["id"] != eval_user["id"] for u in users)
+
+
+def test_delete_user_requires_super_admin(client: TestClient, admin_token: str, evaluator_token: str):
+    """A plain admin (not super admin) cannot delete users."""
+    eval_user = client.get("/auth/me", headers=auth_headers(evaluator_token)).json()
+    resp = client.delete(f"/admin/users/{eval_user['id']}", headers=auth_headers(admin_token))
+    assert resp.status_code == 403
+
+
+def test_delete_super_admin_forbidden(client: TestClient, admin_token: str, engine):
+    """Super admin accounts cannot be deleted."""
+    _make_super_admin(engine, "admin@test.com")
+    sa = client.post("/auth/login", json={"email": "admin@test.com", "password": "Password1!"}).json()["access_token"]
+
+    register_and_login(client, "sa2@test.com", "Password1!", "SA2", engine)
+    _make_super_admin(engine, "sa2@test.com")
+    other = client.post("/auth/login", json={"email": "sa2@test.com", "password": "Password1!"}).json()["access_token"]
+    other_id = client.get("/auth/me", headers=auth_headers(other)).json()["id"]
+
+    resp = client.delete(f"/admin/users/{other_id}", headers=auth_headers(sa))
+    assert resp.status_code == 403
+
+
 def test_update_user_activate(client: TestClient, admin_token: str, engine):
     """Super admin can activate/deactivate users."""
     _make_super_admin(engine, "admin@test.com")

@@ -130,6 +130,36 @@ def test_get_activity_records(client: TestClient, admin_token: str, evaluator_to
     assert len(resp.json()) == 1
 
 
+def test_delete_evaluator_preserves_records(
+    client: TestClient, admin_token: str, evaluator_token: str, engine
+):
+    """Deleting an evaluator keeps their recorded scores, with the link nulled."""
+    from sqlmodel import Session, select
+
+    from app.models.user import User, UserRole
+
+    _, activity_id, alice_id, _, eval_id = _setup(client, admin_token, evaluator_token)
+    client.post(
+        "/records", headers=auth_headers(evaluator_token),
+        json={"value_raw": "42", "participant_id": alice_id, "activity_id": activity_id},
+    )
+
+    with Session(engine) as session:
+        u = session.exec(select(User).where(User.email == "admin@test.com")).first()
+        u.role = UserRole.SUPER_ADMIN
+        session.add(u)
+        session.commit()
+    sa = client.post("/auth/login", json={"email": "admin@test.com", "password": "Password1!"}).json()["access_token"]
+
+    resp = client.delete(f"/admin/users/{eval_id}", headers=auth_headers(sa))
+    assert resp.status_code == 204
+
+    recs = client.get(f"/activities/{activity_id}/records", headers=auth_headers(sa)).json()
+    assert len(recs) == 1
+    assert recs[0]["value_raw"] == "42"
+    assert recs[0]["evaluator_id"] is None
+
+
 def test_submit_record_invalid_activity_404(client: TestClient, admin_token: str, evaluator_token: str):
     _, _, alice_id, _, _ = _setup(client, admin_token, evaluator_token)
     resp = client.post(
