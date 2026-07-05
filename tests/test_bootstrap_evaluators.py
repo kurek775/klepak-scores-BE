@@ -4,6 +4,7 @@ import io
 
 from fastapi.testclient import TestClient
 
+from app.core.text import slugify
 from tests.conftest import auth_headers
 
 CSV = b"display_name,group_name\nAlice,1.oddil\nBob,2.oddil\n"
@@ -33,12 +34,34 @@ def test_bootstrap_creates_one_evaluator_per_group(client: TestClient, admin_tok
     assert all(c["password"] == "Letnitabor2026" for c in data["created"])
     assert all(" " not in c["password"] for c in data["created"])
 
+    # emails are clean — plain group@event.cz with no random suffix
+    for c in data["created"]:
+        assert c["email"] == f"{slugify(c['group_name'])}@{slugify('Letni tabor 2026')}.cz"
+
     # full_name reads as the team's leader, e.g. "Vedoucí 1.oddil"
     assert all(c["full_name"] == f"Vedoucí {c['group_name']}" for c in data["created"])
 
     # the event pool now holds both auto-created evaluators
     pool = client.get(f"/events/{event_id}/evaluators", headers=auth_headers(admin_token)).json()
     assert len(pool) == 2
+
+
+def test_bootstrap_email_disambiguates_same_named_events_with_event_id(
+    client: TestClient, admin_token: str
+):
+    """A second event with the same name reuses the domain, so emails clash;
+    they are disambiguated with the event id — never a random suffix."""
+    e1 = _import_event(client, admin_token, name="Duplicate Camp")
+    client.post(f"/events/{e1}/bootstrap-evaluators", headers=auth_headers(admin_token))
+
+    e2 = _import_event(client, admin_token, name="Duplicate Camp")
+    data = client.post(
+        f"/events/{e2}/bootstrap-evaluators", headers=auth_headers(admin_token)
+    ).json()
+
+    for c in data["created"]:
+        assert c["email"].endswith("@duplicate-camp.cz")
+        assert f"-{e2}@" in c["email"]  # event id, not a random hex
 
 
 def test_bootstrap_password_strips_diacritics_and_whitespace(client: TestClient, admin_token: str):

@@ -3,7 +3,6 @@
 import csv
 import io
 import json as json_module
-import secrets
 
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
@@ -461,18 +460,29 @@ def delete_age_category(session: Session, event_id: int, category_id: int) -> No
 # ── Bootstrap evaluators (one per group when the event has none) ──────────────
 
 
-def _unique_evaluator_email(session: Session, group_slug: str, event_slug: str) -> str:
+def _exists_email(session: Session, email: str) -> bool:
+    return session.exec(select(User).where(User.email == email)).first() is not None
+
+
+def _unique_evaluator_email(session: Session, group_slug: str, event_slug: str, event_id: int) -> str:
     # These emails are login handles only — no mail is ever sent. Must be a real
     # TLD so EmailStr validation on /auth/login accepts it (special-use TLDs like
     # ".local" are rejected).
     base = f"{group_slug}@{event_slug}.cz"
-    if not session.exec(select(User).where(User.email == base)).first():
+    if not _exists_email(session, base):
         return base
-    for _ in range(10):
-        candidate = f"{group_slug}-{secrets.token_hex(2)}@{event_slug}.cz"
-        if not session.exec(select(User).where(User.email == candidate)).first():
+    # Only on a real clash (e.g. another event with the same name) disambiguate
+    # with the event's own id — never a random suffix, so emails stay clean.
+    with_id = f"{group_slug}-{event_id}@{event_slug}.cz"
+    if not _exists_email(session, with_id):
+        return with_id
+    # Pathological fallback (same event id + group slug already taken).
+    n = 2
+    while True:
+        candidate = f"{group_slug}-{event_id}-{n}@{event_slug}.cz"
+        if not _exists_email(session, candidate):
             return candidate
-    return f"{group_slug}-{secrets.token_hex(6)}@{event_slug}.cz"
+        n += 1
 
 
 def bootstrap_event_evaluators(
@@ -509,7 +519,7 @@ def bootstrap_event_evaluators(
             skipped.append(group.name)
             continue
 
-        email = _unique_evaluator_email(session, slugify(group.name), event_slug)
+        email = _unique_evaluator_email(session, slugify(group.name), event_slug, event.id)
         full_name = f"Vedoucí {group.name}"
         user = User(
             email=email,
