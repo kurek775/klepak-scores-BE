@@ -481,15 +481,18 @@ def bootstrap_event_evaluators(
     """Create one active EVALUATOR per group that has none, scoped to that group.
 
     Idempotent: groups that already have an evaluator are skipped. The shared
-    password is the event name with diacritics stripped (padded to >= 8 chars).
-    Generated credentials are returned once so the admin can hand them out.
+    password is the event name with diacritics and whitespace stripped (padded
+    to >= 8 chars) so it's easy to type. Generated credentials are returned once
+    so the admin can hand them out.
     """
     event = get_or_404(session, Event, event_id, "Event")
     groups = session.exec(
         select(Group).where(Group.event_id == event_id).order_by(Group.id)
     ).all()
 
-    password_plain = deaccent(event.name).strip() or "klepak"
+    # Remove all whitespace (not just leading/trailing) so the password has no
+    # spaces to fumble when typing it in.
+    password_plain = "".join(deaccent(event.name).split()) or "klepak"
     if len(password_plain) < 8:
         password_plain = password_plain.ljust(8, "0")
     password_hash = hash_password(password_plain)  # same password for every group

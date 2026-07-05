@@ -27,10 +27,11 @@ def test_bootstrap_creates_one_evaluator_per_group(client: TestClient, admin_tok
     assert len(data["created"]) == 2
     assert data["skipped_groups"] == []
 
-    # unique emails, shared password = event name (already diacritic-free here)
+    # unique emails, shared password = event name, diacritic- and space-free
     emails = {c["email"] for c in data["created"]}
     assert len(emails) == 2
-    assert all(c["password"] == "Letni tabor 2026" for c in data["created"])
+    assert all(c["password"] == "Letnitabor2026" for c in data["created"])
+    assert all(" " not in c["password"] for c in data["created"])
 
     # full_name reads as the team's leader, e.g. "Vedoucí 1.oddil"
     assert all(c["full_name"] == f"Vedoucí {c['group_name']}" for c in data["created"])
@@ -40,12 +41,12 @@ def test_bootstrap_creates_one_evaluator_per_group(client: TestClient, admin_tok
     assert len(pool) == 2
 
 
-def test_bootstrap_password_strips_diacritics(client: TestClient, admin_token: str):
+def test_bootstrap_password_strips_diacritics_and_whitespace(client: TestClient, admin_token: str):
     event_id = _import_event(client, admin_token, name="Letní tábor 2026")
     data = client.post(
         f"/events/{event_id}/bootstrap-evaluators", headers=auth_headers(admin_token)
     ).json()
-    assert data["created"][0]["password"] == "Letni tabor 2026"
+    assert data["created"][0]["password"] == "Letnitabor2026"
 
 
 def test_bootstrap_credentials_login_and_are_group_scoped(client: TestClient, admin_token: str):
