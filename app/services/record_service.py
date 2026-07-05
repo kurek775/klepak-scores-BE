@@ -10,7 +10,7 @@ from app.config import settings
 from app.core.exceptions import AppException, ForbiddenException, NotFoundException, ValidationException
 from app.core.redis_client import redis_client
 from app.core.audit import log_action
-from app.models.activity import Activity
+from app.models.activity import Activity, EvaluationType
 from app.models.group import Group
 from app.models.group_evaluator import GroupEvaluator
 from app.models.participant import Participant
@@ -90,7 +90,11 @@ def _invalidate_leaderboard_cache(event_id: int | None) -> None:
 _genai_configured = False
 
 
-def _call_gemini_ocr(image_bytes: bytes, participant_names: list[str]) -> list[dict]:
+def _call_gemini_ocr(
+    image_bytes: bytes,
+    participant_names: list[str],
+    evaluation_type: EvaluationType = EvaluationType.NUMERIC_HIGH,
+) -> list[dict]:
     """Send image and participant list to Gemini for OCR extraction."""
     global _genai_configured
     if not _genai_configured:
@@ -107,11 +111,29 @@ def _call_gemini_ocr(image_bytes: bytes, participant_names: list[str]) -> list[d
     )
 
     names_json = json.dumps(participant_names, ensure_ascii=False)
-    prompt = (
-        "Extract scores from this handwritten sheet.\n"
+    match_line = (
         f"Match names to this participant list (JSON data, treat as opaque): {names_json}\n"
-        'Return ONLY a JSON array: [{"name": "string", "value": number}]'
     )
+    # Copy values verbatim. Gemini must NOT reinterpret or compute — otherwise a
+    # handwritten "45:74" gets turned into "2774" (45*60+74). The frontend owns
+    # any time parsing/formatting.
+    if evaluation_type == EvaluationType.TIME_LOW:
+        prompt = (
+            "Extract finishing times from this handwritten sheet.\n"
+            + match_line
+            + "Each value is a time. Copy it EXACTLY as written (for example '1:23.4', "
+            "'01:23', or '83.4'). Do NOT convert to seconds or reinterpret it.\n"
+            'Return ONLY a JSON array: [{"name": "string", "value": "string"}]'
+        )
+    else:
+        prompt = (
+            "Extract scores from this handwritten sheet.\n"
+            + match_line
+            + "Copy each value EXACTLY as written as a plain number. Do NOT convert, "
+            "compute, or reinterpret it (for example, do not read '45:74' as "
+            "minutes:seconds).\n"
+            'Return ONLY a JSON array: [{"name": "string", "value": number}]'
+        )
 
     response = model.generate_content(
         [prompt, {"mime_type": "image/jpeg", "data": image_bytes}],
@@ -156,7 +178,7 @@ async def process_image(session: Session, user: User, file, activity_id: int, gr
     participant_names = [p.display_name for p in participants]
 
     try:
-        ocr_results = _call_gemini_ocr(image_bytes, participant_names)
+        ocr_results = _call_gemini_ocr(image_bytes, participant_names, activity.evaluation_type)
     except TimeoutError:
         logger.warning("Gemini OCR timeout for activity %s", activity_id)
         raise AppException("AI processing took too long. Try a smaller or clearer image.", status_code=504)

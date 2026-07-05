@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.core.exceptions import NotFoundException
 from app.core.redis_client import redis_client
+from app.core.time_format import format_seconds
 from app.models.activity import Activity, EvaluationType
 from app.models.age_category import AgeCategory
 from app.models.event import Event
@@ -40,10 +41,13 @@ def _assign_age_category(age: int | None, categories: list[AgeCategory], has_cat
     return "Unassigned"
 
 
+_LOWER_IS_BETTER = {EvaluationType.NUMERIC_LOW, EvaluationType.TIME_LOW}
+
+
 def _sort_key_for_record(value_raw: str, evaluation_type: EvaluationType):
     try:
         numeric = float(value_raw)
-        if evaluation_type == EvaluationType.NUMERIC_LOW:
+        if evaluation_type in _LOWER_IS_BETTER:
             return (0, numeric)
         else:
             return (0, -numeric)
@@ -214,13 +218,15 @@ def export_csv(session: Session, event_id: int) -> str:
             records_by_activity[activity.id], activity,
             age_categories, has_age_categories, participant_map,
         )
+        is_time = activity.evaluation_type == EvaluationType.TIME_LOW
         for (_gender, _age_cat), ranked_entries in sorted(ranked_buckets.items()):
             for e in ranked_entries:
                 podium = {1: "Gold", 2: "Silver", 3: "Bronze"}.get(e.rank, "")
+                score = format_seconds(e.value_raw) if is_time else e.value_raw
                 writer.writerow([
                     e.rank, podium, activity.name, e.gender, e.age_category_name,
                     e.participant.display_name, e.group_name,
-                    e.participant.age if e.participant.age is not None else "", e.value_raw,
+                    e.participant.age if e.participant.age is not None else "", score,
                 ])
 
     output.seek(0)
