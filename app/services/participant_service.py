@@ -6,7 +6,12 @@ from app.core.exceptions import NotFoundException, ValidationException
 from app.models.group import Group
 from app.models.participant import Participant
 from app.schemas.participant import ParticipantCreate, ParticipantMoveRequest, ParticipantRead, ParticipantUpdate
-from app.services.common import get_or_404
+from app.services.common import get_or_404, invalidate_leaderboard_cache
+
+
+def _event_id_for_group(session: Session, group_id: int) -> int | None:
+    group = session.get(Group, group_id)
+    return group.event_id if group else None
 
 
 def add_participant(session: Session, group_id: int, body: ParticipantCreate) -> ParticipantRead:
@@ -34,13 +39,16 @@ def update_participant(session: Session, participant_id: int, body: ParticipantU
     session.add(participant)
     session.commit()
     session.refresh(participant)
+    invalidate_leaderboard_cache(_event_id_for_group(session, participant.group_id))
     return ParticipantRead.model_validate(participant)
 
 
 def delete_participant(session: Session, participant_id: int) -> None:
     participant = get_or_404(session, Participant, participant_id, "Participant")
-    session.delete(participant)
+    event_id = _event_id_for_group(session, participant.group_id)
+    session.delete(participant)  # DB cascades this participant's records
     session.commit()
+    invalidate_leaderboard_cache(event_id)
 
 
 def move_participant(session: Session, participant_id: int, body: ParticipantMoveRequest) -> ParticipantRead:
@@ -55,4 +63,5 @@ def move_participant(session: Session, participant_id: int, body: ParticipantMov
     session.add(participant)
     session.commit()
     session.refresh(participant)
+    invalidate_leaderboard_cache(target_group.event_id)
     return ParticipantRead.model_validate(participant)

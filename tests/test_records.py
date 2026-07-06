@@ -130,6 +130,23 @@ def test_get_activity_records(client: TestClient, admin_token: str, evaluator_to
     assert len(resp.json()) == 1
 
 
+def test_cannot_change_eval_type_with_records(client: TestClient, admin_token: str, evaluator_token: str):
+    """Scoring type is locked once an activity has recorded scores."""
+    _, activity_id, alice_id, _, _ = _setup(client, admin_token, evaluator_token)
+    client.post("/records", headers=auth_headers(evaluator_token),
+                json={"value_raw": "42", "participant_id": alice_id, "activity_id": activity_id})
+
+    blocked = client.patch(f"/activities/{activity_id}", headers=auth_headers(admin_token),
+                           json={"evaluation_type": "NUMERIC_LOW"})
+    assert blocked.status_code == 400
+
+    # renaming is still allowed
+    renamed = client.patch(f"/activities/{activity_id}", headers=auth_headers(admin_token),
+                           json={"name": "Renamed"})
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "Renamed"
+
+
 def test_delete_evaluator_preserves_records(
     client: TestClient, admin_token: str, evaluator_token: str, engine
 ):
