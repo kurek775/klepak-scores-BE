@@ -38,7 +38,9 @@ def create_diploma_template(session: Session, event_id: int, body: DiplomaTempla
     get_or_404(session, Event, event_id, "Event")
     template = DiplomaTemplate(
         event_id=event_id, name=body.name, bg_image_url=body.bg_image_url,
-        orientation=body.orientation, items=body.items, fonts=body.fonts,
+        orientation=body.orientation,
+        items=[i.model_dump() for i in body.items],
+        fonts=[f.model_dump() for f in body.fonts],
         default_font=body.default_font,
     )
     session.add(template)
@@ -63,9 +65,9 @@ def update_diploma_template(
     if body.orientation is not None:
         template.orientation = body.orientation
     if body.items is not None:
-        template.items = body.items
+        template.items = [i.model_dump() for i in body.items]
     if body.fonts is not None:
-        template.fonts = body.fonts
+        template.fonts = [f.model_dump() for f in body.fonts]
     template.default_font = body.default_font
 
     session.add(template)
