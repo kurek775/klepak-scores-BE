@@ -14,6 +14,7 @@ class DiplomaItem(BaseModel):
     y: float = Field(ge=0, le=100)
     fontSize: int = Field(ge=1, le=200)
     fontWeight: str = Field(default="normal", max_length=50)
+    fontFamily: str | None = Field(default=None, max_length=255)
     color: str = Field(max_length=50, pattern=r"^#[0-9a-fA-F]{3,8}$")
     centerH: bool = False
     centerV: bool = False
