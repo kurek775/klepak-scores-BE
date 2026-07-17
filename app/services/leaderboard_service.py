@@ -125,7 +125,10 @@ def _bucket_and_rank(
                 prev_key = _sort_key_for_record(sorted_entries[i - 1][1], activity.evaluation_type)
                 curr_key = _sort_key_for_record(value_raw, activity.evaluation_type)
                 if curr_key != prev_key:
-                    rank = i + 1
+                    # Dense ranking: a tie shares a place and does NOT skip the
+                    # next one (10,10,9,9,8 -> 1,1,2,2,3), so medals never gap
+                    # (no "two golds then a bronze"). Matches the diploma export.
+                    rank += 1
             ranked_list.append(RankedEntry(
                 rank=rank, participant=participant, group_name=group_name,
                 value_raw=value_raw, gender=gender, age_category_name=age_cat_name,

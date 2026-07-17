@@ -18,6 +18,11 @@ class DiplomaItem(BaseModel):
     color: str = Field(max_length=50, pattern=r"^#[0-9a-fA-F]{3,8}$")
     centerH: bool = False
     centerV: bool = False
+    # Only meaningful for a DYNAMIC item with key == "category": lets the user
+    # override the gender labels and the "{gender}/{category}" layout per template.
+    genderMale: str | None = Field(default=None, max_length=100)
+    genderFemale: str | None = Field(default=None, max_length=100)
+    categoryFormat: str | None = Field(default=None, max_length=200)
 
 
 class DiplomaFont(BaseModel):
